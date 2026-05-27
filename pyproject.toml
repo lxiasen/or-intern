@@ -1,0 +1,58 @@
+[project]
+name = "or-intern"
+version = "0.1.0"
+description = "OR-Intern: An open-source AI agent for Operations Research — autonomously models, solves, validates, and reports on optimization problems."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Core
+    "pydantic>=2.12.0",
+    "python-dotenv>=1.2.0",
+    # LLM
+    "litellm>=1.83.0",
+    # CLI
+    "prompt-toolkit>=3.0.0",
+    "rich>=13.0.0",
+    # Utilities
+    "requests>=2.33.0",
+    "thefuzz>=0.22.1",
+    "pyyaml>=6.0.0",
+    "jinja2>=3.1.0",
+    "pyomo>=6.10.0",
+    "highspy>=1.14.0",
+    "matplotlib",
+    "pyscipopt>=6.2.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.2.0",
+    "ruff>=0.15.0",
+]
+
+[project.scripts]
+or-intern = "agent.main:cli"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agent*", "configs"]
+
+[tool.setuptools.package-data]
+configs = ["*.json", "*.yaml"]
+agent = ["prompts/*.yaml"]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+]

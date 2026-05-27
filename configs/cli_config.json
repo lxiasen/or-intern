@@ -1,0 +1,20 @@
+{
+    "model_name": "openai/qwen3.6-plus",
+    "api_base": "https://commander-deerflow-paas.apps.digiwincloud.com.cn/v1",
+    "reasoning_effort": null,
+    "max_iterations": 500,
+    "save_sessions": true,
+    "auto_save_interval": 1,
+    "heartbeat_interval_s": 60,
+    "session_log_dir": "session_logs",
+    "tool_runtime": "local",
+    "yolo_mode": false,
+    "auto_approval_cost_cap_usd": 1.0,
+    "confirm_expensive_solves": true,
+    "default_solver": "highs",
+    "solver_timeout": 3600,
+    "mcp_servers": {},
+    "messaging": {
+        "enabled": false
+    }
+}
