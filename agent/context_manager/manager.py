@@ -170,6 +170,24 @@ class ContextManager:
         self.hf_token = hf_token
         self.local_mode = local_mode
         self.compact_prompt = _COMPACT_PROMPT_OR  # OR-Intern: use OR-specific prompt
+        self.system_prompt = self._load_system_prompt(
+            self.tool_specs,
+            prompt_file_suffix=self.prompt_file_suffix,
+            hf_token=self.hf_token,
+            local_mode=self.local_mode,
+        )
+        # The model's real input-token ceiling (from litellm.get_model_info).
+        # Compaction triggers at _COMPACT_THRESHOLD_RATIO below it — see
+        # the compaction_threshold property.
+        self.model_max_tokens = model_max_tokens
+        self.compact_size = int(model_max_tokens * compact_size)
+        # Running count of tokens the last LLM call reported. Drives the
+        # compaction gate; updated in add_message() with each response's
+        # usage.total_tokens.
+        self.running_context_usage = 0
+        self.untouched_messages = untouched_messages
+        self.items: list[Message] = [Message(role="system", content=self.system_prompt)]
+        self.on_message_added = None
 
     def summarize_solve_log(self, log_text: str) -> str:
         """Extract key info from solver output without LLM call.
@@ -209,24 +227,6 @@ class ContextManager:
         This is a no-op marker — actual protection logic lives in compact().
         """
         logger.debug("Model message protection active (OR-Intern)")
-        self.system_prompt = self._load_system_prompt(
-            self.tool_specs,
-            prompt_file_suffix=self.prompt_file_suffix,
-            hf_token=hf_token,
-            local_mode=local_mode,
-        )
-        # The model's real input-token ceiling (from litellm.get_model_info).
-        # Compaction triggers at _COMPACT_THRESHOLD_RATIO below it — see
-        # the compaction_threshold property.
-        self.model_max_tokens = model_max_tokens
-        self.compact_size = int(model_max_tokens * compact_size)
-        # Running count of tokens the last LLM call reported. Drives the
-        # compaction gate; updated in add_message() with each response's
-        # usage.total_tokens.
-        self.running_context_usage = 0
-        self.untouched_messages = untouched_messages
-        self.items: list[Message] = [Message(role="system", content=self.system_prompt)]
-        self.on_message_added = None
 
     def refresh_system_prompt(
         self,

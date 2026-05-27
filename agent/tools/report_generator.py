@@ -6,10 +6,11 @@ sensitivity analysis, and visualizations.
 """
 
 import logging
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from agent.tools._output_dir import get_run_dir
 
 logger = logging.getLogger(__name__)
 
@@ -166,9 +167,8 @@ async def report_generator_handler(args: dict[str, Any]) -> tuple[str, bool]:
     )
 
     # Write to file
-    tmpdir = Path(tempfile.gettempdir()) / "or-intern" / "reports"
-    tmpdir.mkdir(parents=True, exist_ok=True)
-    report_path = tmpdir / f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    rundir = get_run_dir()
+    report_path = rundir / "report.md"
     report_path.write_text(report, encoding="utf-8")
 
     result = (

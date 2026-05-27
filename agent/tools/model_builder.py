@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agent.tools._output_dir import get_run_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -147,6 +149,10 @@ def generate_pyomo_code(description: str, solver: str = "highs") -> str:
     lines.append(f"# Output")
     lines.append(f'print("STATUS:", result.solver.termination_condition)')
     lines.append(f'print("OBJECTIVE:", value(model.obj))')
+    lines.append(f'print("GAP:", getattr(result.problem, "upper_bound", 0) - getattr(result.problem, "lower_bound", 0))')
+    lines.append(f'print("LOWER_BOUND:", getattr(result.problem, "lower_bound", "N/A"))')
+    lines.append(f'print("UPPER_BOUND:", getattr(result.problem, "upper_bound", "N/A"))')
+    lines.append(f'print("SOLVER_TIME:", getattr(result.solver, "time", "N/A"))')
     for vname in parsed["variables"]:
         lines.append(f'print("  {vname} =", value(model.{vname}))')
 
@@ -213,10 +219,9 @@ async def model_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
         parsed = _parse_simple_lp(description)
         code = generate_pyomo_code(description, solver)
 
-        # Write model file
-        tmpdir = Path(tempfile.gettempdir()) / "or-intern"
-        tmpdir.mkdir(exist_ok=True)
-        model_file = tmpdir / "model.py"
+        # Write model file to run directory
+        rundir = get_run_dir()
+        model_file = rundir / "model.py"
         model_file.write_text(code, encoding="utf-8")
 
         result = (

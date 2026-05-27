@@ -25,6 +25,9 @@ htmlcov/
 # Session logs (generated at runtime)
 session_logs/
 
+# Generated runtime outputs
+outputs/
+
 # OS
 .DS_Store
 Thumbs.db

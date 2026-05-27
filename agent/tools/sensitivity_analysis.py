@@ -146,12 +146,10 @@ async def sensitivity_analysis_handler(args: dict[str, Any]) -> tuple[str, bool]
     parametric_code = _generate_parametric_code(var_names, constr_names) \
         if operation in ("parametric", "full") else ""
 
-    script = _SENSITIVITY_SCRIPT_TEMPLATE.format(
-        model_dir=model_path.parent,
-        model_code=model_code,
-        solver=solver_name,
-        parametric_code=parametric_code,
-    )
+    script = _SENSITIVITY_SCRIPT_TEMPLATE.replace("{model_dir}", str(model_path.parent)) \
+        .replace("{model_code}", model_code) \
+        .replace("{solver}", solver_name) \
+        .replace("{parametric_code}", parametric_code)
 
     tmpdir = Path(tempfile.gettempdir()) / "or-intern"
     tmpdir.mkdir(exist_ok=True)

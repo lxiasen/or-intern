@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 # OR-Intern: No HF hub artifacts — pass-through stub.
-def wrap_shell_command_with_hub_artifact_bootstrap(cmd):
+def wrap_shell_command_with_hub_artifact_bootstrap(cmd, session=None):
     """Pass-through stub — no HF Hub artifact bootstrapping in OR-Intern."""
     return cmd
 

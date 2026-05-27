@@ -5,9 +5,10 @@ constraint utilization, objective sensitivity plot.
 """
 
 import logging
-import tempfile
 from pathlib import Path
 from typing import Any
+
+from agent.tools._output_dir import get_run_dir
 
 logger = logging.getLogger(__name__)
 
@@ -163,24 +164,22 @@ async def visualization_handler(args: dict[str, Any]) -> tuple[str, bool]:
     var_name = args.get("var_name", "x")
     gap_data = args.get("gap_data", [])
 
-    tmpdir = Path(tempfile.gettempdir()) / "or-intern" / "charts"
-    tmpdir.mkdir(parents=True, exist_ok=True)
-
+    rundir = get_run_dir()
     charts = []
 
     try:
         if chart_type in ("variables", "all") and variables:
-            path = str(tmpdir / "variables.png")
+            path = str(rundir / "variables.png")
             _generate_variable_chart(variables, objective, path)
             charts.append(("Variable Values", path))
 
         if chart_type in ("sensitivity", "all") and param_data:
-            path = str(tmpdir / "sensitivity.png")
+            path = str(rundir / "sensitivity.png")
             _generate_sensitivity_chart(param_data, var_name, path)
             charts.append(("Sensitivity Analysis", path))
 
         if gap_data and chart_type in ("all",):
-            path = str(tmpdir / "gap_progress.png")
+            path = str(rundir / "gap_progress.png")
             _generate_gap_chart(gap_data, path)
             charts.append(("Solver Progress", path))
 

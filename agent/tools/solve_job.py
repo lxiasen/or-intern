@@ -208,6 +208,15 @@ async def solve_job_handler(args: dict[str, Any]) -> tuple[str, bool]:
         if solution.get("objective") is not None:
             result += f"**Objective value**: {solution['objective']}\n"
 
+        if solution.get("gap") is not None:
+            gap_pct = solution['gap']
+            result += f"**Gap**: {gap_pct:.6g}\n"
+
+        if solution.get("lower_bound") is not None:
+            result += f"**Lower bound**: {solution['lower_bound']:.6g}\n"
+        if solution.get("upper_bound") is not None:
+            result += f"**Upper bound**: {solution['upper_bound']:.6g}\n"
+
         if solution.get("variables"):
             result += "\n**Variable values**:\n"
             for name, val in sorted(solution["variables"].items()):
@@ -238,16 +247,15 @@ async def solve_job_handler(args: dict[str, Any]) -> tuple[str, bool]:
 
 def _parse_solution(output: str) -> dict:
     """Parse the OR_INTERN_SOLUTION markers from solve output."""
-    solution = {"status": "UNKNOWN", "objective": None, "variables": {}}
+    solution = {"status": "UNKNOWN", "objective": None, "variables": {}, "gap": None, "lower_bound": None, "upper_bound": None}
 
     # Check for solution markers
     if "OR_INTERN_SOLUTION_START" in output:
         section = output.split("OR_INTERN_SOLUTION_START")[1]
         section = section.split("OR_INTERN_SOLUTION_END")[0]
     else:
-        section = output  # Parse the whole output
+        section = output
 
-    # Parse Pyomo output format: "  x = 10.0" or "STATUS: optimal"
     for line in section.split("\n"):
         line = line.strip()
         if re.match(r"(?:STATUS|Status):", line, re.IGNORECASE):
@@ -257,7 +265,22 @@ def _parse_solution(output: str) -> dict:
                 solution["objective"] = float(line.split(":", 1)[1].strip())
             except ValueError:
                 pass
-        elif "=" in line and not any(kw in line.lower() for kw in ["status", "objective", "solve", "termination"]):
+        elif re.match(r"(?:GAP|Gap):", line):
+            try:
+                solution["gap"] = float(line.split(":", 1)[1].strip())
+            except ValueError:
+                pass
+        elif re.match(r"(?:LOWER_BOUND|Lower_bound):", line, re.IGNORECASE):
+            try:
+                solution["lower_bound"] = float(line.split(":", 1)[1].strip())
+            except ValueError:
+                pass
+        elif re.match(r"(?:UPPER_BOUND|Upper_bound):", line, re.IGNORECASE):
+            try:
+                solution["upper_bound"] = float(line.split(":", 1)[1].strip())
+            except ValueError:
+                pass
+        elif "=" in line and not any(kw in line.lower() for kw in ["status", "objective", "solve", "termination", "gap", "lower", "upper"]):
             parts = line.split("=", 1)
             name = parts[0].strip()
             try:

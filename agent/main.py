@@ -154,11 +154,23 @@ async def interactive_main(config, max_iterations=None):
                 while True:
                     event = await event_queue.get()
                     if event.event_type == "assistant_chunk":
-                        console.print(event.data.get("chunk", ""), end="")
+                        console.print(event.data.get("content", ""), end="")
                     elif event.event_type == "tool_call":
                         console.print(
-                            f"\n[blue][Tool: {event.data.get('tool_name', '?')}][/]",
+                            f"\n[blue][Tool: {event.data.get('tool', '?')}][/]",
                         )
+                    elif event.event_type == "tool_output":
+                        tool_name = event.data.get("tool", "?")
+                        output = event.data.get("output", "")
+                        success = event.data.get("success", True)
+                        if success:
+                            console.print(
+                                f"\n[green][{tool_name} output][/]\n{output}"
+                            )
+                        else:
+                            console.print(
+                                f"\n[red][{tool_name} error][/]\n{output}"
+                            )
                     elif event.event_type == "turn_complete":
                         console.print()
                         break
