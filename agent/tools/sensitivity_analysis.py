@@ -167,6 +167,12 @@ async def sensitivity_analysis_handler(args: dict[str, Any]) -> tuple[str, bool]
             process.communicate(), timeout=60
         )
         output = stdout.decode("utf-8", errors="replace")
+        stderr_str = stderr.decode("utf-8", errors="replace")
+
+        # Check for subprocess failure
+        if process.returncode != 0:
+            error_msg = stderr_str[-2000:] if stderr_str else "(no stderr)"
+            return f"## Sensitivity Analysis Failed\n\n**Exit code**: {process.returncode}\n\n**Error**:\n```\n{error_msg}\n```", True
 
         # Parse results
         dual_values = {}

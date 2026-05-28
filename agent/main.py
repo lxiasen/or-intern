@@ -151,30 +151,42 @@ async def interactive_main(config, max_iterations=None):
                 await submit_user_input(submission_queue, user_input, submission_id)
 
                 # Display response
+                current_tool = None
                 while True:
                     event = await event_queue.get()
                     if event.event_type == "assistant_chunk":
+                        # Stop spinner when assistant starts speaking
+                        if current_tool:
+                            current_tool = None
                         console.print(event.data.get("content", ""), end="")
                     elif event.event_type == "tool_call":
-                        console.print(
-                            f"\n[blue][Tool: {event.data.get('tool', '?')}][/]",
-                        )
+                        tool_name = event.data.get("tool", "?")
+                        current_tool = tool_name
+                        console.print(f"\n[dim]  ⏳ {tool_name}...[/]", end="")
                     elif event.event_type == "tool_output":
                         tool_name = event.data.get("tool", "?")
                         output = event.data.get("output", "")
                         success = event.data.get("success", True)
+                        current_tool = None
+                        # Compact display: show tool name with status
                         if success:
-                            console.print(
-                                f"\n[green][{tool_name} output][/]\n{output}"
-                            )
+                            # Show first 3 lines of output, collapse the rest
+                            lines = output.strip().split("\n")
+                            if len(lines) > 5:
+                                preview = "\n".join(lines[:3])
+                                console.print(f"\r[green]  ✓ {tool_name}[/]  [dim]({len(lines)} lines)[/]")
+                                console.print(f"[dim]{preview}[/]")
+                            else:
+                                console.print(f"\r[green]  ✓ {tool_name}[/]")
+                                console.print(f"[dim]{output.strip()}[/]")
                         else:
-                            console.print(
-                                f"\n[red][{tool_name} error][/]\n{output}"
-                            )
+                            console.print(f"\r[red]  ✗ {tool_name}[/]")
+                            console.print(f"[red]{output.strip()[:500]}[/]")
                     elif event.event_type == "turn_complete":
                         console.print()
                         break
                     elif event.event_type == "error":
+                        current_tool = None
                         console.print(
                             f"\n[red]Error: {event.data.get('error', '?')}[/]",
                         )

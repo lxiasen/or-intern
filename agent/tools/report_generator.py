@@ -126,57 +126,60 @@ REPORT_GENERATOR_TOOL_SPEC = {
 
 async def report_generator_handler(args: dict[str, Any]) -> tuple[str, bool]:
     """Handler for report_generator tool."""
-    problem_desc = args.get("problem_description", "Optimization problem")
-    problem_type = args.get("problem_type", "LP")
-    objective = args.get("objective", "N/A")
-    variables = args.get("variables", {})
-    constraints = args.get("constraints", {})
-    solver = args.get("solver", "HiGHS")
-    status = args.get("status", "OPTIMAL")
-    chart_paths = args.get("chart_paths", [])
+    try:
+        problem_desc = args.get("problem_description", "Optimization problem")
+        problem_type = args.get("problem_type", "LP")
+        objective = args.get("objective", "N/A")
+        variables = args.get("variables", {})
+        constraints = args.get("constraints", {})
+        solver = args.get("solver", "HiGHS")
+        status = args.get("status", "OPTIMAL")
+        chart_paths = args.get("chart_paths", [])
 
-    # Build sections
-    var_table = _format_var_table(variables)
-    constraint_table = _format_constraint_table(constraints)
+        # Build sections
+        var_table = _format_var_table(variables)
+        constraint_table = _format_constraint_table(constraints)
 
-    sensitivity_section = ""
-    if constraints:
-        sensitivity_section = "## Sensitivity Analysis\n\n" + constraint_table
+        sensitivity_section = ""
+        if constraints:
+            sensitivity_section = "## Sensitivity Analysis\n\n" + constraint_table
 
-    visualization_section = ""
-    if chart_paths:
-        visualization_section = "## Visualizations\n\n"
-        for path in chart_paths:
-            visualization_section += f"![Chart]({path})\n\n"
+        visualization_section = ""
+        if chart_paths:
+            visualization_section = "## Visualizations\n\n"
+            for path in chart_paths:
+                visualization_section += f"![Chart]({path})\n\n"
 
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    report = _REPORT_TEMPLATE.format(
-        timestamp=timestamp,
-        solver=solver,
-        status=status,
-        problem_description=problem_desc,
-        problem_type=problem_type,
-        num_variables=len(variables),
-        num_constraints=len(constraints),
-        objective=objective,
-        var_table=var_table,
-        constraint_table=constraint_table,
-        sensitivity_section=sensitivity_section,
-        visualization_section=visualization_section,
-    )
+        report = _REPORT_TEMPLATE.format(
+            timestamp=timestamp,
+            solver=solver,
+            status=status,
+            problem_description=problem_desc,
+            problem_type=problem_type,
+            num_variables=len(variables),
+            num_constraints=len(constraints),
+            objective=objective,
+            var_table=var_table,
+            constraint_table=constraint_table,
+            sensitivity_section=sensitivity_section,
+            visualization_section=visualization_section,
+        )
 
-    # Write to file
-    rundir = get_run_dir()
-    report_path = rundir / "report.md"
-    report_path.write_text(report, encoding="utf-8")
+        rundir = get_run_dir()
+        report_path = rundir / "report.md"
+        report_path.write_text(report, encoding="utf-8")
 
-    result = (
-        f"## Report Generated\n\n"
-        f"**Report file**: {report_path}\n"
-        f"**Length**: {len(report)} chars\n"
-        f"**Sections**: Problem, Model, Solution, Sensitivity, Visualizations\n\n"
-        f"Use `read` to view the full report."
-    )
+        result = (
+            f"## Report Generated\n\n"
+            f"**Report file**: {report_path}\n"
+            f"**Length**: {len(report)} chars\n"
+            f"**Sections**: Problem, Model, Solution, Sensitivity, Visualizations\n\n"
+            f"Use `read` to view the full report."
+        )
+        return result, False
 
-    return result, False
+    except Exception as e:
+        logger.error(f"report_generator failed: {e}")
+        return f"Error generating report: {e}", True

@@ -133,3 +133,107 @@ class TestSolveSuccessRate:
 
         rate = passed / len(TIER1_BENCHMARKS) * 100
         assert rate >= 80, f"Tier 1 rate: {passed}/{len(TIER1_BENCHMARKS)} = {rate:.0f}%"
+
+
+class TestFullPipeline:
+    """End-to-end: model_builder → solver_selector → solve_job → validate → sensitivity → visualization → report."""
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_simple_lp(self):
+        """Test the complete 6-phase pipeline on a simple LP."""
+        from agent.tools.model_builder import model_builder_handler
+        from agent.tools.solver_selector import solver_selector_handler
+        from agent.tools.solve_job import solve_job_handler
+        from agent.tools.validate_solution import validate_solution_handler
+        from agent.tools.sensitivity_analysis import sensitivity_analysis_handler
+        from agent.tools.visualization import visualization_handler
+        from agent.tools.report_generator import report_generator_handler
+
+        desc = "maximize 5x + 3y subject to 2x + y <= 20, x + 3y <= 30, x >= 0, y >= 0"
+
+        # Phase 1: Model
+        model_out, err = await model_builder_handler({"description": desc})
+        assert not err, f"Phase 1: {model_out[:200]}"
+        m = re.search(r'(?:Model file\*\*|model_path):\s*(.+)', model_out)
+        assert m, f"No model path: {model_out[:200]}"
+        model_path = m.group(1).strip().strip("'")
+
+        # Phase 2: Solve
+        sol_out, err = await solver_selector_handler({"description": desc})
+        assert not err, f"solver_selector: {sol_out[:200]}"
+
+        sol_out, err = await solve_job_handler({"model_path": model_path, "solver": "highs"})
+        assert not err, f"Phase 2: {sol_out[:200]}"
+        assert "OPTIMAL" in sol_out
+
+        # Phase 3: Validate
+        val_out, err = await validate_solution_handler({"model_path": model_path})
+        assert not err, f"Phase 3: {val_out[:200]}"
+        assert "FEASIBLE" in val_out
+
+        # Phase 4: Sensitivity
+        sens_out, err = await sensitivity_analysis_handler({"model_path": model_path, "operation": "dual"})
+        assert not err, f"Phase 4: {sens_out[:200]}"
+
+        # Phase 5: Visualize
+        viz_out, err = await visualization_handler({"variables": {"x": 13.0, "y": 0.0}, "objective": 65.0})
+        # viz may fail if matplotlib not installed, skip gracefully
+        if err and "matplotlib" in str(viz_out):
+            pytest.skip("matplotlib not installed")
+
+        # Phase 6: Report
+        rep_out, err = await report_generator_handler({
+            "problem_description": desc, "objective": 65.0,
+            "variables": {"x": 13.0, "y": 0.0}, "constraints": {"c1": 0.0},
+            "status": "OPTIMAL",
+        })
+        assert not err, f"Phase 6: {rep_out[:200]}"
+        assert "Report Generated" in rep_out
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_minimization(self):
+        """Test pipeline on a minimization problem."""
+        from agent.tools.model_builder import model_builder_handler
+        from agent.tools.solve_job import solve_job_handler
+        from agent.tools.validate_solution import validate_solution_handler
+        from agent.tools.sensitivity_analysis import sensitivity_analysis_handler
+
+        desc = "minimize 4x + 6y subject to x + 2y >= 8, 3x + 2y >= 12, x >= 0, y >= 0"
+
+        out, err = await model_builder_handler({"description": desc})
+        assert not err
+        m = re.search(r'(?:Model file\*\*|model_path):\s*(.+)', out)
+        model_path = m.group(1).strip().strip("'")
+
+        sol, err = await solve_job_handler({"model_path": model_path, "solver": "highs"})
+        assert not err
+        assert "OPTIMAL" in sol
+
+        val, err = await validate_solution_handler({"model_path": model_path})
+        assert not err
+
+        sens, err = await sensitivity_analysis_handler({"model_path": model_path, "operation": "dual"})
+        assert not err
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_infeasible(self):
+        """Infeasible problem should diagnose, not crash."""
+        from agent.tools.model_builder import model_builder_handler
+        from agent.tools.solve_job import solve_job_handler
+        from agent.tools.validate_solution import validate_solution_handler
+        from agent.tools.sensitivity_analysis import sensitivity_analysis_handler
+
+        desc = "maximize x + y subject to x + y >= 100, x <= 10, y <= 10, x >= 0, y >= 0"
+
+        out, err = await model_builder_handler({"description": desc})
+        assert not err
+        m = re.search(r'(?:Model file\*\*|model_path):\s*(.+)', out)
+        model_path = m.group(1).strip().strip("'")
+
+        sol, err = await solve_job_handler({"model_path": model_path, "solver": "highs"})
+        # Should either fail (err=True) or report infeasible status
+        if not err:
+            assert "INFEASIBLE" in sol or "infeasible" in sol.lower()
+        # validate and sensitivity should not crash on infeasible models
+        await validate_solution_handler({"model_path": model_path})
+        await sensitivity_analysis_handler({"model_path": model_path})

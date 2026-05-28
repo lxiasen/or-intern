@@ -164,6 +164,20 @@ async def visualization_handler(args: dict[str, Any]) -> tuple[str, bool]:
     var_name = args.get("var_name", "x")
     gap_data = args.get("gap_data", [])
 
+    if chart_type in ("variables", "all") and not variables:
+        return "No variable data provided for visualization. Pass `variables` dict, e.g. {\"x\": 10, \"y\": 0}.", True
+
+    # Validate variables values are numeric
+    if variables:
+        bad = {k: v for k, v in variables.items() if not isinstance(v, (int, float))}
+        if bad:
+            return f"Variable values must be numeric. Invalid: {bad}", True
+
+    try:
+        import matplotlib  # noqa: F401
+    except ImportError:
+        return "matplotlib is not installed. Run: uv add matplotlib", True
+
     rundir = get_run_dir()
     charts = []
 

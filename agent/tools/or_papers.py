@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # ── arXiv API ──
 
-_ARXIV_API = "http://export.arxiv.org/api/query"
+_ARXIV_API = "https://export.arxiv.org/api/query"
 
 _OR_KEYWORDS = [
     "optimization", "operations research", "linear programming",

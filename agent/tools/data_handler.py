@@ -15,10 +15,20 @@ logger = logging.getLogger(__name__)
 
 # ── Loaders ──
 
+def _read_file(path: str) -> str:
+    """Read file with encoding fallback (utf-8 → gbk)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except UnicodeDecodeError:
+        with open(path, encoding="gbk", errors="replace") as f:
+            return f.read()
+
+
 def _load_csv(path: str) -> dict:
     """Load CSV and auto-detect structure."""
-    with open(path, newline="", encoding="utf-8") as f:
-        reader = list(csv.reader(f))
+    content = _read_file(path)
+    reader = list(csv.reader(content.splitlines()))
 
     if not reader:
         return {"type": "empty", "data": []}
@@ -59,8 +69,8 @@ def _load_csv(path: str) -> dict:
 
 def _load_json(path: str) -> dict:
     """Load JSON data file."""
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+    content = _read_file(path)
+    data = json.loads(content)
 
     if isinstance(data, list):
         return {"type": "list", "data": data, "length": len(data)}
