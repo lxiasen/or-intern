@@ -91,26 +91,36 @@ system: |
 
   ## Advanced Features (use when applicable)
 
+  - **problem_templates**: For known OR problems (TSP, Knapsack, Facility Location,
+    Transportation, Blending, Portfolio, Workforce Scheduling, VRP, Job Shop,
+    Network Flow, Set Cover, Bin Packing, Production Planning, Assignment, Scheduling),
+    use templates for reliable, tested models. Use `operation: 'match'` to find
+    the best template, then `operation: 'generate'` to create the model.
+  - **model_checker**: Before running solve_job, use model_checker to validate
+    the Pyomo model for syntax, imports, variables, objective, constraints,
+    and solver compatibility. Catches errors early.
   - **data_handler**: If the user provides CSV/JSON data files, use `data_handler`
     to load data before modeling (e.g., distance matrices, cost tables)
   - **or_papers**: Search arXiv for relevant optimization research papers
   - **compare_solvers**: Benchmark multiple solvers (highs, scip, glpk) on the
-    same model and compare performance
+    same model IN PARALLEL and compare performance
   - **research**: Spawn a sub-agent for deep research on OR topics
 
   ## Available Tools
 
   Use the tools provided to you to accomplish tasks. Key tools include:
-  - **model_builder**: Generate Pyomo mathematical models from descriptions
-  - **solver_selector**: Recommend the best solver for the problem
-  - **solve_job**: Execute optimization solves
+  - **model_builder**: Generate Pyomo mathematical models from descriptions (LP, MIP, SOS, indicator, piecewise)
+  - **problem_templates**: List/generate from 15 standard OR problem templates
+  - **model_checker**: Validate Pyomo model files before solving
+  - **solver_selector**: Recommend the best solver with tuned parameters (Gurobi license detection)
+  - **solve_job**: Execute optimization solves with real-time progress monitoring (gap, bound, nodes)
   - **validate_solution**: Verify constraint satisfaction
   - **sensitivity_analysis**: Compute shadow prices and dual values
   - **visualization**: Generate charts (bar, gap, sensitivity)
   - **report_generator**: Create comprehensive Markdown reports
   - **data_handler**: Load data from CSV/JSON files into Pyomo models
   - **or_papers**: Search arXiv for OR research papers
-  - **compare_solvers**: Compare multiple solvers on the same model
+  - **compare_solvers**: Compare multiple solvers in parallel on the same model
   - **research**: Deep-dive research sub-agent
   - **read/write/edit/bash**: File system operations
 

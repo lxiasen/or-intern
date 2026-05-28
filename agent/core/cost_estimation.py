@@ -1,282 +1,150 @@
-"""Conservative cost estimates for auto-approved infrastructure actions."""
+"""Cost estimation for OR-Intern.
 
-import os
-import re
+Estimates costs for solver operations and LLM API calls.
+No HuggingFace dependencies — purely OR-domain.
+"""
+
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
+logger = logging.getLogger(__name__)
 
-OPENID_PROVIDER_URL = os.environ.get("OPENID_PROVIDER_URL", "")
-JOBS_HARDWARE_URL = f"{OPENID_PROVIDER_URL}/api/jobs/hardware"
-JOBS_PRICE_CACHE_TTL_S = 6 * 60 * 60
+# ── Solver cost model ──
 
-DEFAULT_JOB_TIMEOUT_HOURS = 0.5
-DEFAULT_SANDBOX_RESERVATION_HOURS = 1.0
-
-# Static fallback prices are intentionally conservative enough for a budget
-# guard. The live /api/jobs/hardware catalog wins whenever it is reachable.
-HF_JOBS_PRICE_USD_PER_HOUR: dict[str, float] = {
-    "cpu-basic": 0.05,
-    "cpu-upgrade": 0.25,
-    "cpu-performance": 0.50,
-    "cpu-xl": 1.00,
-    "t4-small": 0.60,
-    "t4-medium": 0.90,
-    "l4x1": 1.00,
-    "l4x4": 4.00,
-    "l40sx1": 2.00,
-    "l40sx4": 8.00,
-    "l40sx8": 16.00,
-    "a10g-small": 1.00,
-    "a10g-large": 2.00,
-    "a10g-largex2": 4.00,
-    "a10g-largex4": 8.00,
-    "a100-large": 4.00,
-    "a100x4": 16.00,
-    "a100x8": 32.00,
-    "h200": 10.00,
-    "h200x2": 20.00,
-    "h200x4": 40.00,
-    "h200x8": 80.00,
-    "inf2x6": 6.00,
+SOLVER_COST_PER_HOUR: dict[str, float] = {
+    "highs": 0.0,
+    "scip": 0.0,
+    "glpk": 0.0,
+    "cbc": 0.0,
+    "ipopt": 0.0,
+    "gurobi": 2.50,
+    "cplex": 2.50,
+    "xpress": 3.00,
+    "mosek": 2.00,
 }
 
-SPACE_PRICE_USD_PER_HOUR: dict[str, float] = {
-    "cpu-basic": 0.0,
-    "cpu-upgrade": 0.05,
-    "cpu-performance": 0.50,
-    "cpu-xl": 1.00,
-    "t4-small": 0.60,
-    "t4-medium": 0.90,
-    "l4x1": 1.00,
-    "l4x4": 4.00,
-    "l40sx1": 2.00,
-    "l40sx4": 8.00,
-    "l40sx8": 16.00,
-    "a10g-small": 1.00,
-    "a10g-large": 2.00,
-    "a10g-largex2": 4.00,
-    "a10g-largex4": 8.00,
-    "a100-large": 4.00,
-    "a100x4": 16.00,
-    "a100x8": 32.00,
-    "h200": 10.00,
-    "h200x2": 20.00,
-    "h200x4": 40.00,
-    "h200x8": 80.00,
-    "inf2x6": 6.00,
+COMMERCIAL_SOLVERS = {"gurobi", "cplex", "xpress", "mosek", "baron"}
+
+# ── LLM cost model (USD per 1M tokens) ──
+
+LLM_COST_PER_1M_TOKENS: dict[str, dict[str, float]] = {
+    "default": {"input": 3.0, "output": 15.0},
+    "gpt-4o": {"input": 2.5, "output": 10.0},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.6},
+    "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
+    "claude-haiku": {"input": 0.25, "output": 1.25},
 }
 
-_DURATION_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([smhd]?)\s*$", re.IGNORECASE)
-_PRICE_RE = re.compile(r"(\d+(?:\.\d+)?)")
-_jobs_price_cache: tuple[float, dict[str, float]] | None = None
+# OR task-specific token budgets
+OR_TASK_TOKEN_ESTIMATES = {
+    "model_building": {"input": 5000, "output": 3000},
+    "solve_monitoring": {"input": 1000, "output": 500},
+    "sensitivity_analysis": {"input": 2000, "output": 1500},
+    "report_generation": {"input": 3000, "output": 5000},
+    "research": {"input": 4000, "output": 2000},
+}
 
 
 @dataclass(frozen=True)
 class CostEstimate:
-    """Estimated cost for a tool call.
-
-    ``estimated_cost_usd=None`` means the call may be billable but we could not
-    estimate it safely, so auto-approval should fall back to a human decision.
-    """
-
+    """Estimated cost for an operation."""
     estimated_cost_usd: float | None
     billable: bool
     block_reason: str | None = None
     label: str | None = None
 
 
-def parse_timeout_hours(
-    value: Any, *, default_hours: float = DEFAULT_JOB_TIMEOUT_HOURS
-) -> float | None:
-    """Parse HF timeout values into hours.
-
-    Strings accept ``s``, ``m``, ``h``, or ``d`` suffixes. Numeric values are
-    treated as seconds, matching the Hub client's typed timeout parameter.
-    """
-    if value is None or value == "":
-        return default_hours
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int | float):
-        seconds = float(value)
-        return seconds / 3600 if seconds > 0 else None
-    if not isinstance(value, str):
-        return None
-
-    match = _DURATION_RE.match(value)
-    if not match:
-        return None
-    amount = float(match.group(1))
-    unit = match.group(2).lower() or "s"
-    if amount <= 0:
-        return None
-    if unit == "s":
-        return amount / 3600
-    if unit == "m":
-        return amount / 60
-    if unit == "h":
-        return amount
-    if unit == "d":
-        return amount * 24
-    return None
+def _match_model_pricing(model_name: str) -> dict[str, float]:
+    """Find pricing for a model, falling back to default."""
+    name_lower = model_name.lower()
+    for key, prices in LLM_COST_PER_1M_TOKENS.items():
+        if key in name_lower:
+            return prices
+    return LLM_COST_PER_1M_TOKENS["default"]
 
 
-def _extract_flavor(item: dict[str, Any]) -> str | None:
-    for key in ("flavor", "name", "id", "value", "hardware", "hardware_flavor"):
-        value = item.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
+def estimate_solver_cost(solver_name: str, timeout_s: int,
+                         problem_size: int = 0) -> CostEstimate:
+    """Estimate cost for a solver run."""
+    name = solver_name.strip().lower()
+    hourly_rate = SOLVER_COST_PER_HOUR.get(name)
 
-
-def _coerce_price(value: Any) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, int | float):
-        return float(value) if value >= 0 else None
-    if isinstance(value, str):
-        match = _PRICE_RE.search(value.replace(",", ""))
-        if match:
-            return float(match.group(1))
-    return None
-
-
-def _extract_hourly_price(item: dict[str, Any]) -> float | None:
-    for key in (
-        "price",
-        "price_usd",
-        "priceUsd",
-        "price_per_hour",
-        "pricePerHour",
-        "hourly_price",
-        "hourlyPrice",
-        "usd_per_hour",
-        "usdPerHour",
-    ):
-        price = _coerce_price(item.get(key))
-        if price is not None:
-            return price
-    for key in ("pricing", "billing", "cost"):
-        nested = item.get(key)
-        if isinstance(nested, dict):
-            price = _extract_hourly_price(nested)
-            if price is not None:
-                return price
-    return None
-
-
-def _iter_hardware_items(payload: Any):
-    if isinstance(payload, list):
-        for item in payload:
-            yield from _iter_hardware_items(item)
-    elif isinstance(payload, dict):
-        if _extract_flavor(payload):
-            yield payload
-        for key in ("hardware", "flavors", "items", "data", "jobs"):
-            child = payload.get(key)
-            if child is not None:
-                yield from _iter_hardware_items(child)
-
-
-def _parse_jobs_price_catalog(payload: Any) -> dict[str, float]:
-    prices: dict[str, float] = {}
-    for item in _iter_hardware_items(payload):
-        flavor = _extract_flavor(item)
-        price = _extract_hourly_price(item)
-        if flavor and price is not None:
-            prices[flavor] = price
-    return prices
-
-
-async def hf_jobs_price_catalog() -> dict[str, float]:
-    """Return live HF Jobs hourly prices, falling back to static prices."""
-    global _jobs_price_cache
-    now = time.monotonic()
-    if _jobs_price_cache and now - _jobs_price_cache[0] < JOBS_PRICE_CACHE_TTL_S:
-        return dict(_jobs_price_cache[1])
-
-    prices: dict[str, float] = {}
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            response = await client.get(JOBS_HARDWARE_URL)
-            if response.status_code == 200:
-                prices = _parse_jobs_price_catalog(response.json())
-    except (httpx.HTTPError, ValueError):
-        prices = {}
-
-    if not prices:
-        prices = dict(HF_JOBS_PRICE_USD_PER_HOUR)
-    else:
-        prices = {**HF_JOBS_PRICE_USD_PER_HOUR, **prices}
-
-    _jobs_price_cache = (now, prices)
-    return dict(prices)
-
-
-async def estimate_hf_job_cost(args: dict[str, Any]) -> CostEstimate:
-    flavor = str(
-        args.get("hardware_flavor")
-        or args.get("flavor")
-        or args.get("hardware")
-        or "cpu-basic"
-    )
-    timeout_hours = parse_timeout_hours(args.get("timeout"))
-    if timeout_hours is None:
+    if hourly_rate is None:
         return CostEstimate(
             estimated_cost_usd=None,
             billable=True,
-            block_reason=f"Could not parse HF job timeout: {args.get('timeout')!r}.",
-            label=flavor,
+            block_reason=f"Unknown solver '{solver_name}'. Cannot estimate cost.",
+            label=solver_name,
         )
 
-    prices = await hf_jobs_price_catalog()
-    price = prices.get(flavor)
-    if price is None:
+    if hourly_rate == 0.0:
         return CostEstimate(
-            estimated_cost_usd=None,
-            billable=True,
-            block_reason=f"No price is available for HF job hardware '{flavor}'.",
-            label=flavor,
+            estimated_cost_usd=0.0,
+            billable=False,
+            label=f"{name} (open source)",
         )
+
+    hours = timeout_s / 3600.0
+    cost = hourly_rate * hours
+    scale = 1.0 + (problem_size / 100000) if problem_size > 0 else 1.0
+    cost *= scale
 
     return CostEstimate(
-        estimated_cost_usd=round(price * timeout_hours, 4),
-        billable=price > 0,
-        label=flavor,
+        estimated_cost_usd=round(cost, 4),
+        billable=True,
+        label=f"{name} ({timeout_s}s)",
     )
 
 
-async def estimate_sandbox_cost(
-    args: dict[str, Any], *, session: Any = None
-) -> CostEstimate:
-    if session is not None and getattr(session, "sandbox", None):
-        return CostEstimate(estimated_cost_usd=0.0, billable=False, label="existing")
-
-    hardware = str(args.get("hardware") or "cpu-basic")
-    price = SPACE_PRICE_USD_PER_HOUR.get(hardware)
-    if price is None:
-        return CostEstimate(
-            estimated_cost_usd=None,
-            billable=True,
-            block_reason=f"No price is available for sandbox hardware '{hardware}'.",
-            label=hardware,
-        )
+def estimate_llm_cost(model_name: str, input_tokens: int,
+                      output_tokens: int) -> CostEstimate:
+    """Estimate cost for an LLM API call."""
+    prices = _match_model_pricing(model_name)
+    cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
 
     return CostEstimate(
-        estimated_cost_usd=round(price * DEFAULT_SANDBOX_RESERVATION_HOURS, 4),
-        billable=price > 0,
-        label=hardware,
+        estimated_cost_usd=round(cost, 6),
+        billable=cost > 0,
+        label=f"{model_name} ({input_tokens}+{output_tokens} tokens)",
+    )
+
+
+def estimate_task_cost(task_type: str, model_name: str = "default",
+                       solver_name: str = "highs",
+                       timeout_s: int = 300) -> CostEstimate:
+    """Estimate total cost for an OR task (LLM + solver)."""
+    tokens = OR_TASK_TOKEN_ESTIMATES.get(task_type, {"input": 2000, "output": 1000})
+    llm_cost = estimate_llm_cost(model_name, tokens["input"], tokens["output"])
+    solver_cost = estimate_solver_cost(solver_name, timeout_s)
+
+    total = 0.0
+    if llm_cost.estimated_cost_usd:
+        total += llm_cost.estimated_cost_usd
+    if solver_cost.estimated_cost_usd:
+        total += solver_cost.estimated_cost_usd
+
+    return CostEstimate(
+        estimated_cost_usd=round(total, 4),
+        billable=total > 0,
+        label=f"{task_type}: LLM={model_name}, solver={solver_name}",
     )
 
 
 async def estimate_tool_cost(
     tool_name: str, args: dict[str, Any], *, session: Any = None
 ) -> CostEstimate:
-    if tool_name == "sandbox_create":
-        return await estimate_sandbox_cost(args, session=session)
-    if tool_name == "hf_jobs":
-        return await estimate_hf_job_cost(args)
+    """Estimate cost for a tool call (async interface for compatibility)."""
+    if tool_name == "solve_job":
+        solver = args.get("solver", "highs")
+        timeout = args.get("timeout", 300)
+        return estimate_solver_cost(solver, timeout)
+    if tool_name in ("model_builder", "research", "report_generator",
+                      "sensitivity_analysis"):
+        model_name = "default"
+        if session and hasattr(session, "config"):
+            model_name = getattr(session.config, "model_name", "default")
+        tokens = OR_TASK_TOKEN_ESTIMATES.get(tool_name, {"input": 3000, "output": 2000})
+        return estimate_llm_cost(model_name, tokens["input"], tokens["output"])
     return CostEstimate(estimated_cost_usd=0.0, billable=False)

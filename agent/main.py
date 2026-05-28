@@ -73,19 +73,19 @@ def _safe_print(text: str, end: str = ""):
 async def interactive_main(config, max_iterations=None):
     """Run OR-Intern in interactive mode."""
     from rich.console import Console
+    from rich.panel import Panel
     from agent.core.agent_loop import submission_loop
     from agent.core.tools import ToolRouter, create_builtin_tools
+    from agent.utils.terminal_display import BANNER, format_tool_call, format_tool_result
 
     console = Console()
 
     # Banner
-    console.print()
-    console.print("  [bold green]OR-Intern v0.1.0[/]")
-    console.print("  [dim]Operations Research AI Agent[/]")
+    console.print(BANNER, style="bold green")
     console.print(f"  [dim]Model: {config.model_name}[/]")
     console.print()
-    console.print("  [dim]Type your optimization problem and press Enter.[/]")
-    console.print("  [dim]Commands: /help, /model, /exit[/]")
+    console.print("  [dim]输入优化问题并按 Enter 开始[/]")
+    console.print("  [dim]命令: /help, /model, /exit[/]")
     console.print()
 
     # Create tool router
@@ -135,16 +135,24 @@ async def interactive_main(config, max_iterations=None):
                 if user_input.startswith("/"):
                     cmd = user_input[1:].strip().lower()
                     if cmd in ("exit", "quit", "q"):
-                        console.print("[yellow]Goodbye![/]")
+                        console.print("[yellow]再见！[/]")
                         break
                     elif cmd == "help":
-                        console.print("[bold]Commands:[/] /help, /model, /exit")
+                        console.print("[bold]可用命令:[/]")
+                        console.print("  /help   - 显示帮助信息")
+                        console.print("  /model  - 显示当前模型")
+                        console.print("  /exit   - 退出程序")
+                        console.print()
+                        console.print("[bold]示例问题:[/]")
+                        console.print("  • 最大化 5x + 3y，约束：2x + y <= 20, x + 3y <= 30")
+                        console.print("  • 求解背包问题，容量50，物品重量[10,20,30]，价值[60,100,120]")
+                        console.print("  • 列出所有可用的问题模板")
                         continue
                     elif cmd == "model":
-                        console.print(f"Model: {config.model_name}")
+                        console.print(f"当前模型: {config.model_name}")
                         continue
                     else:
-                        console.print(f"[red]Unknown: {cmd}[/]")
+                        console.print(f"[red]未知命令: {cmd}，输入 /help 查看帮助[/]")
                         continue
 
                 # Submit to agent
@@ -161,27 +169,15 @@ async def interactive_main(config, max_iterations=None):
                         console.print(event.data.get("content", ""), end="")
                     elif event.event_type == "tool_call":
                         tool_name = event.data.get("tool", "?")
+                        tool_args = event.data.get("args", {})
                         current_tool = tool_name
-                        console.print(f"\n[dim]  ⏳ {tool_name}...[/]", end="")
+                        console.print(f"\n{format_tool_call(tool_name, tool_args)}", highlight=False)
                     elif event.event_type == "tool_output":
                         tool_name = event.data.get("tool", "?")
                         output = event.data.get("output", "")
-                        success = event.data.get("success", True)
+                        is_error = event.data.get("is_error", False)
                         current_tool = None
-                        # Compact display: show tool name with status
-                        if success:
-                            # Show first 3 lines of output, collapse the rest
-                            lines = output.strip().split("\n")
-                            if len(lines) > 5:
-                                preview = "\n".join(lines[:3])
-                                console.print(f"\r[green]  ✓ {tool_name}[/]  [dim]({len(lines)} lines)[/]")
-                                console.print(f"[dim]{preview}[/]")
-                            else:
-                                console.print(f"\r[green]  ✓ {tool_name}[/]")
-                                console.print(f"[dim]{output.strip()}[/]")
-                        else:
-                            console.print(f"\r[red]  ✗ {tool_name}[/]")
-                            console.print(f"[red]{output.strip()[:500]}[/]")
+                        console.print(format_tool_result(tool_name, output, is_error), highlight=False)
                     elif event.event_type == "turn_complete":
                         console.print()
                         break
@@ -209,6 +205,10 @@ async def interactive_main(config, max_iterations=None):
             await agent_task
         except asyncio.CancelledError:
             pass
+
+        # Clear run marker so next session gets a fresh output directory
+        from agent.tools._output_dir import clear_run_marker
+        clear_run_marker()
 
 
 async def headless_main(prompt, config, max_iterations=None):

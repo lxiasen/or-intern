@@ -1463,7 +1463,7 @@ class Handlers:
                                 "tool": tc.function.name,
                                 "tool_call_id": tc.id,
                                 "output": error_msg,
-                                "success": False,
+                                "is_error": True,
                             },
                         )
                     )
@@ -1595,7 +1595,7 @@ class Handlers:
                     results = gather_task.result()
 
                     # 4. Record results and send outputs (order preserved)
-                    for tc, tool_name, tool_args, output, success in results:
+                    for tc, tool_name, tool_args, output, is_error in results:
                         tool_msg = Message(
                             role="tool",
                             content=output,
@@ -1611,7 +1611,7 @@ class Handlers:
                                     "tool": tool_name,
                                     "tool_call_id": tc.id,
                                     "output": output,
-                                    "success": success,
+                                    "is_error": is_error,
                                 },
                             )
                         )
@@ -1813,16 +1813,16 @@ class Handlers:
                 )
                 session.context_manager.add_message(tool_msg)
                 await session.send_event(
-                    Event(
-                        event_type="tool_output",
-                        data={
-                            "tool": tool_name,
-                            "tool_call_id": tc.id,
-                            "output": f"Malformed arguments: {e}",
-                            "success": False,
-                        },
+                        Event(
+                            event_type="tool_output",
+                            data={
+                                "tool": tool_name,
+                                "tool_call_id": tc.id,
+                                "output": f"Malformed arguments: {e}",
+                                "is_error": True,
+                            },
+                        )
                     )
-                )
                 continue
 
             approval_decision = approval_map.get(tc.id, {"approved": False})
@@ -1948,7 +1948,7 @@ class Handlers:
                     logger.error(f"Tool execution error: {result}")
                     continue
 
-                tc, tool_name, output, success, was_edited = result
+                tc, tool_name, output, is_error, was_edited = result
 
                 if was_edited:
                     output = f"[Note: The user edited the script before execution. The output below reflects the user-modified version, not your original script.]\n\n{output}"
@@ -1969,7 +1969,7 @@ class Handlers:
                             "tool": tool_name,
                             "tool_call_id": tc.id,
                             "output": output,
-                            "success": success,
+                            "is_error": is_error,
                         },
                     )
                 )
@@ -2005,7 +2005,7 @@ class Handlers:
                         "tool": tool_name,
                         "tool_call_id": tc.id,
                         "output": rejection_msg,
-                        "success": False,
+                        "is_error": True,
                     },
                 )
             )

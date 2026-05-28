@@ -30,3 +30,15 @@ def get_run_dir() -> Path:
     rundir.mkdir(parents=True, exist_ok=True)
     marker.write_text(f"run_{ts}", encoding="utf-8")
     return rundir
+
+
+def clear_run_marker() -> None:
+    """Clear the current run marker file.
+
+    Call this at the start of each new user input to ensure
+    a fresh output directory is created for the next run.
+    """
+    outdir = Path(__file__).parent.parent.parent / "outputs"
+    marker = outdir / _MARKER_NAME
+    if marker.exists():
+        marker.unlink()

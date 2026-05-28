@@ -57,7 +57,10 @@ def _format_var_table(variables: dict) -> str:
     """Format variables as markdown table."""
     lines = ["| Variable | Value |", "|----------|-------|"]
     for name, val in sorted(variables.items()):
-        lines.append(f"| {name} | {val:.4f} |")
+        if isinstance(val, (int, float)):
+            lines.append(f"| {name} | {val:.4f} |")
+        else:
+            lines.append(f"| {name} | {val} |")
     return "\n".join(lines)
 
 
@@ -68,7 +71,10 @@ def _format_constraint_table(constraints: dict) -> str:
     lines = ["## Constraint Analysis", "",
              "| Constraint | Shadow Price |", "|------------|-------------|"]
     for name, dual in sorted(constraints.items()):
-        lines.append(f"| {name} | {dual:.4f} |")
+        if isinstance(dual, (int, float)):
+            lines.append(f"| {name} | {dual:.4f} |")
+        else:
+            lines.append(f"| {name} | {dual} |")
     return "\n".join(lines)
 
 

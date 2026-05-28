@@ -65,7 +65,12 @@ class ToolRouter:
             return f"Tool '{name}' has no handler", True
 
         try:
-            result = await tool_spec.handler(args)
+            import inspect
+            sig = inspect.signature(tool_spec.handler)
+            if "session" in sig.parameters:
+                result = await tool_spec.handler(args, session=session)
+            else:
+                result = await tool_spec.handler(args)
             if isinstance(result, tuple):
                 return result
             return result, False
@@ -96,6 +101,8 @@ from agent.tools.or_papers import OR_PAPERS_TOOL_SPEC, or_papers_handler
 from agent.tools.compare_solvers import COMPARE_SOLVERS_TOOL_SPEC, compare_solvers_handler
 from agent.tools.research_tool import RESEARCH_TOOL_SPEC, research_handler
 from agent.tools.data_handler import DATA_HANDLER_TOOL_SPEC, data_handler_handler
+from agent.tools.templates import TEMPLATES_TOOL_SPEC, templates_handler
+from agent.tools.model_checker import MODEL_CHECKER_TOOL_SPEC, model_checker_handler
 
 
 def create_builtin_tools() -> list[ToolSpec]:
@@ -181,6 +188,22 @@ def create_builtin_tools() -> list[ToolSpec]:
         description=DATA_HANDLER_TOOL_SPEC["description"],
         parameters=DATA_HANDLER_TOOL_SPEC["parameters"],
         handler=data_handler_handler,
+    ))
+
+    # Problem templates (v0.5)
+    tools.append(ToolSpec(
+        name=TEMPLATES_TOOL_SPEC["name"],
+        description=TEMPLATES_TOOL_SPEC["description"],
+        parameters=TEMPLATES_TOOL_SPEC["parameters"],
+        handler=templates_handler,
+    ))
+
+    # Model checker (v0.5)
+    tools.append(ToolSpec(
+        name=MODEL_CHECKER_TOOL_SPEC["name"],
+        description=MODEL_CHECKER_TOOL_SPEC["description"],
+        parameters=MODEL_CHECKER_TOOL_SPEC["parameters"],
+        handler=model_checker_handler,
     ))
 
     # Plan tool

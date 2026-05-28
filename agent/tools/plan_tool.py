@@ -139,4 +139,5 @@ async def plan_tool_handler(
 ) -> tuple[str, bool]:
     tool = PlanTool(session=session)
     result = await tool.execute(arguments)
-    return result["formatted"], not result.get("isError", False)
+    is_error = result.get("isError", False)
+    return result["formatted"], is_error
