@@ -115,9 +115,10 @@ class TestToolRegistration:
         from agent.core.tools import create_builtin_tools
         tools = create_builtin_tools()
         names = {t.name for t in tools}
-        assert len(tools) == 18
+        assert len(tools) == 20
         for required in ["model_builder", "solve_job", "validate_solution",
                          "sensitivity_analysis", "visualization", "report_generator",
                          "compare_solvers", "or_papers", "data_handler",
-                         "solver_selector", "research"]:
+                         "solver_selector", "research", "problem_templates",
+                         "model_checker"]:
             assert required in names, f"Missing tool: {required}"

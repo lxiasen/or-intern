@@ -44,6 +44,68 @@ def _detect_direction(desc: str) -> str:
     return "maximize"
 
 
+# ── Problem type detection (v1.0: NLP/Convex support) ──
+
+NONLINEAR_PATTERNS = [
+    re.compile(r"\b\w+\s*\^\s*[2-9]"),  # x^2, y^3
+    re.compile(r"\b\w+\s*\*\*\s*[2-9]"),  # x**2, y**3
+    re.compile(r"\b(sin|cos|tan|exp|log|sqrt|abs)\b", re.I),  # Math functions
+    re.compile(r"\b\w+\s*\^\s*2"),  # x^2 specifically
+]
+
+CONVEX_KEYWORDS = ["minimize", "convex", "quadratic", "norm", "least squares", "qp", "square"]
+SOCP_KEYWORDS = ["second order cone", "socp", "norm2", "norm2("]
+SDP_KEYWORDS = ["semidefinite", "sdp", "positive semidefinite"]
+
+
+def detect_problem_type(description: str) -> str:
+    """Detect problem type: LP, MIP, NLP, Convex, SOCP, SDP.
+
+    Returns:
+        Problem type string
+    """
+    desc_lower = description.lower()
+
+    if any(kw in desc_lower for kw in SDP_KEYWORDS):
+        return "SDP"
+    if any(kw in desc_lower for kw in SOCP_KEYWORDS):
+        return "SOCP"
+
+    has_nonlinear = any(p.search(desc_lower) for p in NONLINEAR_PATTERNS)
+
+    if has_nonlinear:
+        is_likely_convex = any(kw in desc_lower for kw in CONVEX_KEYWORDS)
+        if is_likely_convex:
+            return "Convex"
+        return "NLP"
+
+    _, coeffs = _extract_objective(description)
+    var_types = _detect_var_types(description, list(coeffs.keys()))
+    is_mip = any(v != "continuous" for v in var_types.values())
+
+    if is_mip:
+        return "MIP"
+    return "LP"
+
+
+def recommend_framework(problem_type: str) -> tuple[str, str]:
+    """Recommend modeling framework and solver for problem type.
+
+    Returns:
+        (framework, solver) tuple
+    """
+    recommendations = {
+        "LP": ("pyomo", "highs"),
+        "MIP": ("pyomo", "highs"),
+        "NLP": ("pyomo", "ipopt"),
+        "Convex": ("cvxpy", "ECOS"),
+        "SOCP": ("cvxpy", "ECOS"),
+        "SDP": ("cvxpy", "SCS"),
+        "QP": ("cvxpy", "OSQP"),
+    }
+    return recommendations.get(problem_type, ("pyomo", "highs"))
+
+
 def _extract_objective(desc: str) -> tuple[str, dict[str, float]]:
     m = re.search(
         r"(?:maximize|minimize|max|min)\s*[:]?\s*(.+?)(?:subject to|s\.t\.|such that|\n|$)",
@@ -323,6 +385,16 @@ async def model_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
         return "Error: No problem description provided", True
 
     try:
+        problem_type = detect_problem_type(description)
+        framework, recommended_solver = recommend_framework(problem_type)
+
+        if solver == "highs" and recommended_solver != "highs":
+            solver = recommended_solver
+
+        if framework == "cvxpy":
+            from agent.tools.cvxpy_builder import generate_cvxpy_code, cvxpy_builder_handler
+            return await cvxpy_builder_handler(args)
+
         _, coeffs = _extract_objective(description)
         var_names = list(coeffs.keys())
         var_types = _detect_var_types(description, var_names)
@@ -350,12 +422,10 @@ async def model_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
         if piecewise:
             features.append(f"Piecewise functions: {len(piecewise)}")
 
-        is_mip = any(v != "continuous" for v in var_types.values())
-        problem_type = "MIP" if is_mip else "LP"
-
         result = (
             f"## Model Generated\n\n"
             f"**Problem type**: {problem_type}\n"
+            f"**Framework**: {framework}\n"
             f"**Objective**: {direction if (direction := _detect_direction(description)) else 'maximize'}\n"
             f"**Variables**: {', '.join(var_names)}\n"
             f"**Constraints**: {len(constraints)}\n"

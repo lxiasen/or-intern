@@ -17,7 +17,7 @@ class TestContextManager:
         cm = ContextManager(
             model_max_tokens=100000,
             compact_size=0.1,
-            untouched_messages=5,
+            untouched_messages=10,
         )
         assert cm.model_max_tokens == 100000
 

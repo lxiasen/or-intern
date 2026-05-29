@@ -468,6 +468,22 @@ async def solve_job_handler(args: dict[str, Any], session=None) -> tuple[str, bo
             )
 
         _, formatted = _format_result(result, solver_name)
+
+        try:
+            from agent.core import telemetry
+            await telemetry.record_solve(
+                session,
+                solver=solver_name,
+                status=result.status,
+                objective=result.objective,
+                gap=result.gap,
+                elapsed_s=result.elapsed_s,
+                nodes=result.nodes,
+                iterations=result.iterations,
+            )
+        except Exception:
+            logger.debug("solve_job telemetry recording failed", exc_info=True)
+
         return formatted, False
 
     except Exception as e:

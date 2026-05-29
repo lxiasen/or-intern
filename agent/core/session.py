@@ -112,7 +112,7 @@ class Session:
         self.context_manager = context_manager or ContextManager(
             model_max_tokens=_get_max_tokens_safe(config.model_name),
             compact_size=0.1,
-            untouched_messages=5,
+            untouched_messages=10,
             tool_specs=tool_specs,
             hf_token=hf_token,
             local_mode=local_mode,
@@ -487,6 +487,13 @@ class Session:
             for e in self.logged_events
             if e.get("event_type") == "llm_call"
         )
+        telemetry_summary = {}
+        try:
+            from agent.core.telemetry import get_session_summary
+            telemetry_summary = get_session_summary(self)
+        except Exception:
+            pass
+
         return {
             "session_id": self.session_id,
             "user_id": self.user_id,
@@ -498,6 +505,7 @@ class Session:
             "messages": [msg.model_dump() for msg in self.context_manager.items],
             "events": self.logged_events,
             "tools": tools,
+            "telemetry": telemetry_summary,
         }
 
     def save_trajectory_local(

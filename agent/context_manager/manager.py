@@ -46,11 +46,22 @@ _COMPACT_PROMPT = (
 # ── OR-specific compaction prompts ──
 
 _COMPACT_PROMPT_OR = (
-    "Please provide a concise summary of the conversation above, focusing on "
-    "the optimization problem being solved, the mathematical model formulation "
-    "(variables, constraints, objective), the solver used and its results, and "
-    "key decisions made. Preserve model parameters and solve results verbatim "
-    "when possible. The summary will be given to someone continuing the work."
+    "You are summarizing a conversation about solving an optimization problem. "
+    "Provide a concise summary that MUST preserve the following verbatim:\n"
+    "1. The original problem description (what the user asked to optimize).\n"
+    "2. The mathematical model formulation: decision variables, objective "
+    "function, and all constraints.\n"
+    "3. The current best solution found: solver name, status (optimal/feasible/"
+    "infeasible), objective value, optimality gap, solve time, and key "
+    "variable values.\n"
+    "4. The file paths of any generated model files (e.g. model.py), "
+    "charts, and reports.\n"
+    "5. Any solver parameter tuning or model refinement decisions made.\n\n"
+    "Omit: verbose solver iteration logs, repeated tool outputs, and "
+    "intermediate failed attempts (unless they explain why the current "
+    "approach was chosen).\n\n"
+    "The summary will be given to someone who must continue the optimization "
+    "work without seeing the original conversation."
 )
 
 _SOLVE_LOG_COMPACT_PROMPT = (
@@ -64,7 +75,7 @@ _SOLVE_LOG_COMPACT_PROMPT = (
 # producing the infinite compaction loop seen 2026-05-03 in pod logs (200k
 # context shrinks to 200k+ because one tool output is 80k tokens). We replace
 # such messages with a placeholder before compaction runs.
-_MAX_TOKENS_PER_MESSAGE = 50_000
+_MAX_TOKENS_PER_MESSAGE = 30_000
 
 
 class CompactionFailedError(Exception):
@@ -159,7 +170,7 @@ class ContextManager:
         self,
         model_max_tokens: int = 180_000,
         compact_size: float = 0.1,
-        untouched_messages: int = 5,
+        untouched_messages: int = 10,
         tool_specs: list[dict[str, Any]] | None = None,
         prompt_file_suffix: str = "system_prompt.yaml",
         hf_token: str | None = None,
@@ -431,9 +442,10 @@ class ContextManager:
                 count += 1
         return False
 
-    # Compaction fires at 90% of model_max_tokens so there's headroom for
-    # the next turn's prompt + response before we actually hit the ceiling.
-    _COMPACT_THRESHOLD_RATIO = 0.9
+    # Compaction fires at 85% of model_max_tokens. OR-Intern uses a lower
+    # threshold than ML-Intern (90%) because OR solver logs and model
+    # formulations can be very large — earlier compaction gives more headroom.
+    _COMPACT_THRESHOLD_RATIO = 0.85
 
     @property
     def compaction_threshold(self) -> int:

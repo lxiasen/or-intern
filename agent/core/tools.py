@@ -57,6 +57,8 @@ class ToolRouter:
 
         Returns: (output_string, is_error_bool)
         """
+        import time as _time
+
         tool_spec = self.tools.get(name)
         if not tool_spec:
             return f"Tool '{name}' not found", True
@@ -64,6 +66,7 @@ class ToolRouter:
         if tool_spec.handler is None:
             return f"Tool '{name}' has no handler", True
 
+        t0 = _time.monotonic()
         try:
             import inspect
             sig = inspect.signature(tool_spec.handler)
@@ -72,9 +75,35 @@ class ToolRouter:
             else:
                 result = await tool_spec.handler(args)
             if isinstance(result, tuple):
-                return result
-            return result, False
+                output, is_error = result
+            else:
+                output, is_error = result, False
+
+            duration_ms = int((_time.monotonic() - t0) * 1000)
+            try:
+                from agent.core import telemetry
+                await telemetry.record_tool_call(
+                    session,
+                    tool_name=name,
+                    duration_ms=duration_ms,
+                    is_error=is_error,
+                )
+            except Exception:
+                pass
+
+            return output, is_error
         except Exception as e:
+            duration_ms = int((_time.monotonic() - t0) * 1000)
+            try:
+                from agent.core import telemetry
+                await telemetry.record_tool_call(
+                    session,
+                    tool_name=name,
+                    duration_ms=duration_ms,
+                    is_error=True,
+                )
+            except Exception:
+                pass
             return str(e), True
 
     async def __aenter__(self):

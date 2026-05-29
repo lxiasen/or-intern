@@ -1,7 +1,7 @@
-"""Model checker for OR-Intern v0.5.
+"""Model checker for OR-Intern v1.0.
 
-Validates Pyomo model files for syntax, consistency, and solver compatibility
-before submission to solve_job. Catches common errors early.
+Validates Pyomo and cvxpy model files for syntax, consistency, solver
+compatibility, and DCP compliance before submission to solve_job.
 """
 
 import ast
@@ -13,6 +13,13 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_framework(code: str) -> str:
+    """Detect if code uses Pyomo or cvxpy."""
+    if "import cvxpy" in code or "cp.Variable" in code:
+        return "cvxpy"
+    return "pyomo"
 
 
 def _check_syntax(code: str) -> list[str]:
@@ -28,24 +35,40 @@ def _check_syntax(code: str) -> list[str]:
 def _check_imports(code: str) -> list[str]:
     """Check that required imports are present."""
     warnings = []
-    if "from pyomo.environ import" not in code and "import pyomo" not in code:
-        warnings.append("Missing Pyomo import: add 'from pyomo.environ import *'")
-    if "ConcreteModel" not in code and "AbstractModel" not in code:
-        warnings.append("No model declaration found: expected ConcreteModel() or AbstractModel()")
+    framework = _detect_framework(code)
+
+    if framework == "cvxpy":
+        if "import cvxpy" not in code:
+            warnings.append("Missing cvxpy import: add 'import cvxpy as cp'")
+        if "cp.Variable" not in code:
+            warnings.append("No cvxpy variables found: expected cp.Variable(...)")
+    else:
+        if "from pyomo.environ import" not in code and "import pyomo" not in code:
+            warnings.append("Missing Pyomo import: add 'from pyomo.environ import *'")
+        if "ConcreteModel" not in code and "AbstractModel" not in code:
+            warnings.append("No model declaration found: expected ConcreteModel() or AbstractModel()")
     return warnings
 
 
 def _check_variables(code: str) -> list[str]:
     """Check variable declarations."""
     warnings = []
-    var_pattern = re.compile(r"model\.(\w+)\s*=\s*Var\(")
-    vars_found = var_pattern.findall(code)
-    if not vars_found:
-        warnings.append("No decision variables found (model.X = Var(...))")
+    framework = _detect_framework(code)
 
-    for v in vars_found:
-        if not re.search(rf"model\.{v}\s*=\s*Var\([^)]*domain\s*=", code):
-            warnings.append(f"Variable '{v}' has no explicit domain — defaults to Reals")
+    if framework == "cvxpy":
+        var_pattern = re.compile(r"(\w+)\s*=\s*cp\.Variable\(")
+        vars_found = var_pattern.findall(code)
+        if not vars_found:
+            warnings.append("No cvxpy variables found (X = cp.Variable(...))")
+    else:
+        var_pattern = re.compile(r"model\.(\w+)\s*=\s*Var\(")
+        vars_found = var_pattern.findall(code)
+        if not vars_found:
+            warnings.append("No decision variables found (model.X = Var(...))")
+
+        for v in vars_found:
+            if not re.search(rf"model\.{v}\s*=\s*Var\([^)]*domain\s*=", code):
+                warnings.append(f"Variable '{v}' has no explicit domain — defaults to Reals")
 
     return warnings
 
@@ -53,19 +76,57 @@ def _check_variables(code: str) -> list[str]:
 def _check_objective(code: str) -> list[str]:
     """Check objective function."""
     errors = []
-    if "Objective(" not in code and "Objective\n" not in code:
-        errors.append("No objective function found: expected model.obj = Objective(...)")
-    if "sense=" not in code:
-        errors.append("Objective has no 'sense=' parameter — defaults to minimize")
+    framework = _detect_framework(code)
+
+    if framework == "cvxpy":
+        if "cp.Minimize" not in code and "cp.Maximize" not in code:
+            errors.append("No cvxpy objective found: expected cp.Minimize(...) or cp.Maximize(...)")
+        if "cp.Problem" not in code:
+            errors.append("No cp.Problem found: expected problem = cp.Problem(objective, constraints)")
+    else:
+        if "Objective(" not in code and "Objective\n" not in code:
+            errors.append("No objective function found: expected model.obj = Objective(...)")
+        if "sense=" not in code:
+            errors.append("Objective has no 'sense=' parameter — defaults to minimize")
     return errors
 
 
 def _check_constraints(code: str) -> list[str]:
     """Check constraints."""
     warnings = []
-    has_constraint = "Constraint(" in code or "ConstraintList" in code
-    if not has_constraint:
-        warnings.append("No constraints found — this may be an unconstrained problem")
+    framework = _detect_framework(code)
+
+    if framework == "cvxpy":
+        if "constraints" not in code:
+            warnings.append("No constraints variable found for cvxpy model")
+    else:
+        has_constraint = "Constraint(" in code or "ConstraintList" in code
+        if not has_constraint:
+            warnings.append("No constraints found — this may be an unconstrained problem")
+    return warnings
+
+
+def _check_dcp_compliance(code: str) -> list[str]:
+    """Check DCP compliance for cvxpy models."""
+    warnings = []
+    framework = _detect_framework(code)
+
+    if framework != "cvxpy":
+        return warnings
+
+    non_dcp_patterns = [
+        (r"\bmax\s*\(", "max() is not DCP — use cp.maximum()"),
+        (r"\bmin\s*\(", "min() is not DCP — use cp.minimum()"),
+        (r"\babs\s*\(", "abs() without cp — use cp.abs()"),
+        (r"\bsqrt\s*\(", "sqrt() without cp — use cp.sqrt()"),
+        (r"\blog\s*\(", "log() without cp — use cp.log()"),
+        (r"\bexp\s*\(", "exp() without cp — use cp.exp()"),
+    ]
+
+    for pattern, msg in non_dcp_patterns:
+        if re.search(pattern, code) and not re.search(rf"cp\.{pattern[2:]}", code):
+            warnings.append(f"Potential DCP violation: {msg}")
+
     return warnings
 
 
@@ -133,16 +194,17 @@ def _run_import_test(code: str) -> list[str]:
 MODEL_CHECKER_TOOL_SPEC = {
     "name": "model_checker",
     "description": (
-        "Validate a Pyomo model file for syntax, consistency, and solver "
-        "compatibility. Checks: Python syntax, imports, variables, objective, "
-        "constraints, numeric issues. Use before solve_job to catch errors early."
+        "Validate a Pyomo or cvxpy model file for syntax, consistency, solver "
+        "compatibility, and DCP compliance. Checks: Python syntax, imports, "
+        "variables, objective, constraints, numeric issues. Use before solve_job "
+        "to catch errors early."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "model_path": {
                 "type": "string",
-                "description": "Path to the Pyomo model file to check",
+                "description": "Path to the model file to check (Pyomo or cvxpy)",
             },
             "solver": {
                 "type": "string",
@@ -176,6 +238,8 @@ async def model_checker_handler(args: dict[str, Any]) -> tuple[str, bool]:
     if not code.strip():
         return "Error: Model file is empty", True
 
+    framework = _detect_framework(code)
+
     all_errors: list[str] = []
     all_warnings: list[str] = []
 
@@ -195,8 +259,12 @@ async def model_checker_handler(args: dict[str, Any]) -> tuple[str, bool]:
         con_warnings = _check_constraints(code)
         all_warnings.extend(con_warnings)
 
-        compat_warnings = _check_solver_compat(code, solver)
-        all_warnings.extend(compat_warnings)
+        if framework == "cvxpy":
+            dcp_warnings = _check_dcp_compliance(code)
+            all_warnings.extend(dcp_warnings)
+        else:
+            compat_warnings = _check_solver_compat(code, solver)
+            all_warnings.extend(compat_warnings)
 
         numeric_warnings = _check_numeric(code)
         all_warnings.extend(numeric_warnings)
@@ -206,6 +274,8 @@ async def model_checker_handler(args: dict[str, Any]) -> tuple[str, bool]:
             all_errors.extend(runtime_errors)
 
     out = "## Model Check Results\n\n"
+    out += f"**Framework**: {framework}\n\n"
+
     if not all_errors and not all_warnings:
         out += "✅ **All checks passed!** Model is ready for solving.\n"
     else:
