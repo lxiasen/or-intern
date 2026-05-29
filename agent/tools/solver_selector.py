@@ -30,6 +30,11 @@ def _detect_gurobi_license() -> dict:
     }
     try:
         import gurobipy as gp
+    except ImportError:
+        info["message"] = "gurobipy not installed. Run: pip install gurobipy"
+        return info
+
+    try:
         m = gp.Model()
         info["available"] = True
         attrs = m.getAttr("LicenseExpiration") if hasattr(m, "getAttr") else None
@@ -55,8 +60,6 @@ def _detect_gurobi_license() -> dict:
             )
         else:
             info["message"] = f"Gurobi error: {e}"
-    except ImportError:
-        info["message"] = "gurobipy not installed. Run: pip install gurobipy"
     except Exception as e:
         info["message"] = f"Gurobi check failed: {e}"
     return info

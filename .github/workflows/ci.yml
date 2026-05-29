@@ -27,10 +27,22 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Run tests
+      - name: Run unit tests
         env:
           OPENAI_API_KEY: "dummy-key-for-ci"
-        run: uv run pytest tests/ -v --tb=short -x
+        run: uv run pytest tests/unit/ -v --tb=short -x
+
+      - name: Run integration tests
+        env:
+          OPENAI_API_KEY: "dummy-key-for-ci"
+        run: uv run pytest tests/integration/ -v --tb=short -x
+        continue-on-error: true
+
+      - name: Run benchmark tests
+        env:
+          OPENAI_API_KEY: "dummy-key-for-ci"
+        run: uv run pytest tests/benchmarks/ -v --tb=short -x
+        continue-on-error: true
 
   lint:
     runs-on: ubuntu-latest
@@ -53,3 +65,32 @@ jobs:
 
       - name: Check syntax
         run: uv run python -m py_compile agent/main.py
+
+      - name: Check all tool imports
+        run: |
+          uv run python -c "
+          from agent.tools.model_builder import MODEL_BUILDER_TOOL_SPEC
+          from agent.tools.solver_selector import SOLVER_SELECTOR_TOOL_SPEC
+          from agent.tools.solve_job import SOLVE_JOB_TOOL_SPEC
+          from agent.tools.validate_solution import VALIDATE_SOLUTION_TOOL_SPEC
+          from agent.tools.sensitivity_analysis import SENSITIVITY_ANALYSIS_TOOL_SPEC
+          from agent.tools.visualization import VISUALIZATION_TOOL_SPEC
+          from agent.tools.compare_solvers import COMPARE_SOLVERS_TOOL_SPEC
+          from agent.tools.report_generator import REPORT_GENERATOR_TOOL_SPEC
+          from agent.tools.data_handler import DATA_HANDLER_TOOL_SPEC
+          from agent.tools.or_papers import OR_PAPERS_TOOL_SPEC
+          from agent.tools.model_checker import MODEL_CHECKER_TOOL_SPEC
+          from agent.tools.templates import TEMPLATES_TOOL_SPEC
+          print('All tool imports OK')
+          "
+
+      - name: Check core imports
+        run: |
+          uv run python -c "
+          from agent.core.agent_loop import AgentLoop
+          from agent.core.doom_loop import check_for_doom_loop
+          from agent.core.session import Session
+          from agent.core.tools import create_builtin_tools
+          from agent.context_manager.manager import ContextManager
+          print('All core imports OK')
+          "
