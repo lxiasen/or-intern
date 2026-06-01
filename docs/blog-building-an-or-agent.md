@@ -138,4 +138,4 @@ The agent will walk you through: model generation → solver selection → solut
 
 ---
 
-*OR-Intern is open-source under Apache 2.0. Contributions welcome at [github.com/or-intern/or-intern](https://github.com/or-intern/or-intern).*
+*OR-Intern is open-source under Apache 2.0. Contributions welcome at [github.com/lxiasen/or-intern](https://github.com/lxiasen/or-intern).*

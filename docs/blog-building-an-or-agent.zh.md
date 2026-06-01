@@ -138,4 +138,4 @@ uv run or-intern "Maximize 5x + 3y subject to 2x + y <= 20, x + 3y <= 30"
 
 ---
 
-*OR-Intern 是 Apache 2.0 下的开源项目。欢迎在 [github.com/or-intern/or-intern](https://github.com/or-intern/or-intern) 贡献。*
+*OR-Intern 是 Apache 2.0 下的开源项目。欢迎在 [github.com/lxiasen/or-intern](https://github.com/lxiasen/or-intern) 贡献。*
