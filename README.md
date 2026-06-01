@@ -1,61 +1,138 @@
 # OR-Intern
 
-An AI agent for Operations Research — autonomously models, solves, validates, and reports on optimization problems.
+**An AI agent for Operations Research — from description to solution, in a single conversation.**
 
-**English | [中文](README.zh.md)**
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.0.0-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/python-3.10+-green?style=flat-square" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/tests-477%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-yellow?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/PRs-welcome-orange?style=flat-square" alt="PRs Welcome">
+</p>
 
-## Quick Start
+<p align="center">
+  <strong>English</strong> | <a href="README.zh.md">中文</a>
+</p>
+
+---
+
+## ✨ Highlights
+
+| Feature | Description |
+|---------|-------------|
+| 🤖 **6-Phase Quality Gate** | Automatic workflow: Model → Solve → Validate → Analyze → Visualize → Report |
+| 🔧 **20 Built-in Tools** | model_builder, solver_selector, sensitivity_analysis, visualization, and more |
+| 🚀 **Multi-Solver Support** | HiGHS (default), SCIP, Gurobi, CPLEX with automatic fallback |
+| 📊 **Rich Outputs** | Generated models (Python/CVXPY), charts, sensitivity reports, PDF reports |
+| 💾 **Session Management** | Undo, compact, restore sessions with persistent workspace |
+| 🌐 **Multi-LLM Backend** | Supports Qwen, Claude, GPT via LiteLLM |
+
+---
+
+## 🚀 Quick Start
+
+### 1. Install
 
 ```bash
-# Clone and install
+git clone https://github.com/your-org/or-intern.git
 cd or-intern
 uv sync
+```
 
-# Set up API keys (LiteLLM compatible)
-cp .env.example .env
-# Edit .env to add OPENAI_API_KEY
+### 2. Configure
 
-# Configure (optional)
+```bash
+# Copy config templates
 cp config.example.yaml config.yaml
+cp .env.example .env
 
+# Edit .env to add your API key
+# OPENAI_API_KEY=sk-your-key-here
+```
+
+### 3. Run
+
+```bash
 # Interactive mode
 uv run or-intern
 
-# Headless mode
+# Headless mode (single problem)
 uv run or-intern "Solve: maximize 3x+2y s.t. x+y<=10, x>=0, y>=0"
 ```
 
-## Architecture
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    A[User Input] --> B[Agent Loop]
+    B --> C[LLM<br>Qwen/Claude/GPT via LiteLLM]
+    C --> D[Tool Router]
+    D --> E[Infrastructure Tools]
+    D --> F[OR Core Tools]
+    D --> G[Analysis Tools]
+    
+    E --> E1[bash, read, write]
+    E --> E2[edit, plan_tool]
+    E --> E3[notify_tool]
+    
+    F --> F1[model_builder]
+    F --> F2[cvxpy_builder]
+    F --> F3[robust_builder]
+    F --> F4[solver_selector]
+    F --> F5[solve_job]
+    F --> F6[validate_solution]
+    F --> F7[problem_templates]
+    F --> F8[or_papers]
+    F --> F9[data_handler]
+    
+    G --> G1[sensitivity]
+    G --> G2[visualization]
+    G --> G3[report_gen]
+    G --> G4[compare_solvers]
+    
+    style A fill:#e1f5ff
+    style B fill:#fff3e0
+    style C fill:#f3e5f5
+    style D fill:#e8f5e8
+```
+
+### 6-Phase Quality Gate Workflow
 
 ```
-User Input → Agent Loop → LLM (qwen/claude/gpt via LiteLLM)
-                    ↓
-              Tool Router (20 tools)
-                    ↓
-    ┌── Infrastructure ──┬── OR Core ──────┬── Analysis ──────┐
-    │ bash, read, write, │ model_builder,   │ sensitivity,     │
-    │ edit, plan_tool,   │ solver_selector, │ visualization,   │
-    │ notify_tool        │ solve_job,       │ report_gen,      │
-    │                    │ validate_solution,│ compare_solvers  │
-    │                    │ cvxpy_builder,   │                  │
-    │                    │ robust_builder,  │                  │
-    │                    │ stochastic_builder│                  │
-    │                    │ problem_templates│                  │
-    │                    │ model_checker,   │                  │
-    │                    │ or_papers,       │                  │
-    │                    │ data_handler     │                  │
-    └─────────────────────┴────────────────┴──────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 1: MODEL    → model_builder / cvxpy_builder / robust    │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 2: SOLVE    → solver_selector + solve_job               │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ OPTIMAL, gap≈0  → Continue                              │   │
+│  │ gap>5% / slow   → Switch solver (max 3 attempts)        │   │
+│  │ INFEASIBLE      → Diagnose conflict                     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 3: VALIDATE → validate_solution                         │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 4: ANALYZE  → sensitivity_analysis                      │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 5: VISUALIZE → visualization                            │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 6: REPORT   → report_generator                          │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## Configuration
+---
 
-Copy `config.example.yaml` to `config.yaml` and customize:
+## ⚙️ Configuration
 
-```bash
-cp config.example.yaml config.yaml
-```
+### Config Files
 
-Example configuration:
+| File | Purpose | Version Control |
+|------|---------|-----------------|
+| `config.yaml` | Model, solver, session settings | ✅ Safe to commit |
+| `.env` | API keys, secrets only | ❌ Gitignored |
+
+### Example `config.yaml`
 
 ```yaml
 model:
@@ -88,64 +165,140 @@ messaging:
   destinations: {}
 ```
 
-Environment variables can be referenced in config.yaml using `$VAR`, `${VAR}`, or `${VAR:-default}` syntax.
-Secrets should go in `.env` (see `.env.example`):
+### Config Search Order
+
+1. `OR_INTERN_CONFIG` environment variable (explicit path)
+2. `./config.yaml` (current directory)
+3. `~/.config/or-intern/config.yaml` (user config directory)
+
+### Environment Variables
+
+Use `$VAR`, `${VAR}`, or `${VAR:-default}` syntax in config.yaml to reference environment variables.
 
 ```bash
-# .env — only secrets, no configuration
+# .env — only secrets
 OPENAI_API_KEY=sk-your-key-here
 # ANTHROPIC_API_KEY=your-key
 # SLACK_BOT_TOKEN=xoxb-your-token
 ```
 
-Config file search order:
-1. `OR_INTERN_CONFIG` environment variable (explicit path)
-2. `./config.yaml` (current directory)
-3. `~/.config/or-intern/config.yaml` (user config directory)
+---
 
-## Testing
-
-```bash
-uv run pytest tests/ -v
-# 477 tests across unit + integration + benchmarks + regression
-```
-
-## Project Structure
+## 📁 Project Structure
 
 ```
 or-intern/
 ├── agent/
-│   ├── main.py              # CLI entry point
-│   ├── config.py            # Configuration (nested YAML)
+│   ├── main.py              # CLI entry point (interactive + headless)
+│   ├── config.py            # Configuration (nested YAML + Pydantic)
 │   ├── core/                # Agent engine
 │   │   ├── agent_loop.py    # Main agent loop
-│   │   ├── approval_policy.py # OR approval rules
-│   │   ├── llm_params.py    # LiteLLM integration
-│   │   ├── telemetry.py     # Session telemetry & workspace tracking
-│   │   ├── session_resume.py # Session restore from log
-│   │   └── ...
+│   │   ├── session.py       # Session management
+│   │   ├── doom_loop.py     # Infinite loop detection
+│   │   └── telemetry.py     # Session telemetry & workspace tracking
 │   ├── context_manager/     # Context compaction + workspace injection
 │   ├── messaging/           # Notification subsystem (Slack, etc.)
 │   ├── tools/               # 20 tool implementations
-│   │   ├── model_builder.py
-│   │   ├── solve_job.py
+│   │   ├── model_builder.py # Generate OR models
+│   │   ├── solve_job.py     # Execute solvers
 │   │   ├── _output_dir.py   # Workspace directory management
 │   │   └── ...
 │   └── prompts/             # System prompts (YAML/Jinja2)
 ├── config.example.yaml      # Configuration template
 ├── .env.example             # Secrets template
-├── tests/                   # Unit + integration + regression tests
+├── tests/                   # 477 tests (unit + integration + regression)
 ├── outputs/                 # Per-session workspace (gitignored)
 ├── session_logs/            # Session trajectories (gitignored)
 ├── pyproject.toml
 └── README.md
 ```
 
-## Documentation
+---
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+uv run pytest tests/ -v
+
+# Unit tests only
+uv run pytest tests/unit/ -v
+
+# Benchmarks (end-to-end)
+uv run pytest tests/benchmarks/ -v
+
+# Regression tests (128 tests, 15 dimensions)
+uv run pytest tests/benchmarks/test_regression.py -v
+
+# Full pipeline tests
+uv run pytest tests/benchmarks/ -v -k "FullPipeline"
+```
+
+---
+
+## 💡 Usage Examples
+
+### Linear Programming
+
+```
+User: Solve: maximize 3x+2y s.t. x+y<=10, x>=0, y>=0
+
+OR-Intern: 
+📊 Model Generated:
+   Maximize: 3x + 2y
+   Subject to: x + y <= 10, x >= 0, y >= 0
+
+✅ Solution Found:
+   x = 10, y = 0
+   Optimal value = 30
+```
+
+### Production Planning
+
+```
+User: We have 3 products (A, B, C) with different profit margins 
+      and resource requirements. Maximize profit given constraints.
+
+OR-Intern:
+[Generates model, solves, validates, creates sensitivity analysis,
+ visualizations, and PDF report - all in one conversation]
+```
+
+---
+
+## 📚 Documentation
 
 - [API Documentation](docs/api.md) | [API 文档（中文）](docs/api.zh.md)
 - [Building an OR Agent](docs/blog-building-an-or-agent.md) | [构建 OR 智能体（中文）](docs/blog-building-an-or-agent.zh.md)
 
-## License
+---
 
-Apache 2.0
+## 🤝 Contributing
+
+Contributions are welcome! Here's how you can help:
+
+1. **Report Bugs** - Open an issue with reproduction steps
+2. **Suggest Features** - Share your ideas in discussions
+3. **Submit PRs** - Fork, branch, and submit your changes
+4. **Improve Docs** - Help make documentation clearer
+
+### Adding New Tools
+
+1. Create tool file in `agent/tools/` (e.g., `my_tool.py`)
+2. Define `MY_TOOL_SPEC` (JSON Schema) and `my_tool_handler` (async function)
+3. Use `get_workspace_dir(session)` to get workspace directory
+4. Register in `agent/core/tools.py` in `create_builtin_tools()`
+5. Add description in `agent/prompts/system_prompt.yaml`
+6. Add unit tests in `tests/unit/`
+
+---
+
+## 📄 License
+
+Apache 2.0 - See [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  Made with ❤️ by the OR-Intern Team
+</p>
