@@ -361,7 +361,7 @@ async def solve_job_handler(args: dict[str, Any], session=None) -> tuple[str, bo
         return await _check_solver_status()
 
     model_path_str = args.get("model_path", "")
-    solver_name = args.get("solver", "highs")
+    solver_name = args.get("solver") or (session.config.solver.default)
     timeout = args.get("timeout", DEFAULT_TIMEOUT)
     stream_progress = args.get("stream_progress", True)
 

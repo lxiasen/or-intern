@@ -90,7 +90,7 @@ async def notify_handler(
             severity=severity,
             metadata={
                 "session_id": session.session_id,
-                "model": session.config.model_name,
+                "model": session.config.current_model.name,
             },
         )
         for name in destinations

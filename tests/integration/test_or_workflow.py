@@ -8,7 +8,7 @@ class TestModelBuildSolveValidate:
     """End-to-end: model_builder → solve_job → validate_solution."""
 
     @pytest.mark.asyncio
-    async def test_full_lp_workflow(self):
+    async def test_full_lp_workflow(self, session):
         """Test complete LP workflow from description to validated solution."""
         from agent.tools.model_builder import model_builder_handler
         from agent.tools.solve_job import solve_job_handler
@@ -17,7 +17,7 @@ class TestModelBuildSolveValidate:
         # 1. Build model
         out, err = await model_builder_handler({
             "description": "maximize 3x + 2y subject to x + y <= 10, x >= 0, y >= 0"
-        })
+        }, session=session)
         assert not err, f"model_builder failed: {out}"
         m = re.search(r'Model file\*\*: (.+)', out)
         assert m, "No model file in output"
@@ -27,7 +27,7 @@ class TestModelBuildSolveValidate:
         sol, err = await solve_job_handler({
             "operation": "run", "model_path": model_path,
             "solver": "highs", "timeout": 30
-        })
+        }, session=session)
         assert not err, f"solve failed: {sol}"
         assert "OPTIMAL" in sol
         assert "30.0" in sol

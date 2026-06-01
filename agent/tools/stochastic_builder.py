@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agent.tools._output_dir import get_run_dir
+from agent.tools._output_dir import get_workspace_dir, suggest_filename, record_file
 from agent.tools.uncertainty_modeler import (
     UncertaintyModeler,
     parse_uncertainty_description,
@@ -233,11 +233,12 @@ STOCHASTIC_BUILDER_TOOL_SPEC = {
 }
 
 
-async def stochastic_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
+async def stochastic_builder_handler(args: dict[str, Any], session=None) -> tuple[str, bool]:
     """Handler for stochastic_builder tool."""
     description = args.get("description", "")
     n_scenarios = args.get("n_scenarios", 100)
-    solver = args.get("solver", "highs")
+    solver = args.get("solver") or (session.config.solver.default)
+    filename = args.get("filename", "")
 
     if not description:
         return "Error: No problem description provided", True
@@ -245,9 +246,14 @@ async def stochastic_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
     try:
         code = generate_stochastic_model(description, n_scenarios, solver)
 
-        rundir = get_run_dir()
-        model_file = rundir / "model_stochastic.py"
+        workspace = get_workspace_dir(session)
+        if filename:
+            model_file = workspace / filename
+        else:
+            model_file = workspace / suggest_filename(workspace, "model_stochastic", ".py")
         model_file.write_text(code, encoding="utf-8")
+        record_file(workspace, model_file.name, file_type="pyomo_model",
+                     tool="stochastic_builder", note=f"stochastic: {description[:60]}")
 
         uncertain_params = parse_uncertainty_description(description)
 

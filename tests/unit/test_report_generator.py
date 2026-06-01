@@ -66,7 +66,7 @@ class TestReportGeneratorHandler:
     @pytest.mark.asyncio
     async def test_generates_report(self, temp_dir, monkeypatch):
         import agent.tools.report_generator as rg
-        monkeypatch.setattr(rg, "get_run_dir", lambda: temp_dir)
+        monkeypatch.setattr(rg, "get_workspace_dir", lambda session=None: temp_dir)
         output, is_error = await rg.report_generator_handler({
             "problem_description": "Maximize 3x + 2y",
             "problem_type": "LP",
@@ -76,27 +76,27 @@ class TestReportGeneratorHandler:
             "solver": "highs",
         })
         assert not is_error
-        assert "report.md" in output
+        assert "report" in output.lower()
 
     @pytest.mark.asyncio
     async def test_report_file_created(self, temp_dir, monkeypatch):
         import agent.tools.report_generator as rg
-        monkeypatch.setattr(rg, "get_run_dir", lambda: temp_dir)
+        monkeypatch.setattr(rg, "get_workspace_dir", lambda session=None: temp_dir)
         output, is_error = await rg.report_generator_handler({
             "problem_description": "Test problem",
             "variables": {"x": 1.0},
             "objective": 1.0,
         })
         assert not is_error
-        report_path = temp_dir / "report.md"
-        assert report_path.exists()
-        content = report_path.read_text(encoding="utf-8")
+        md_files = list(temp_dir.glob("*.md"))
+        assert len(md_files) >= 1
+        content = md_files[0].read_text(encoding="utf-8")
         assert "OR-Intern" in content
 
     @pytest.mark.asyncio
     async def test_latex_report_generation(self, temp_dir, monkeypatch):
         import agent.tools.report_generator as rg
-        monkeypatch.setattr(rg, "get_run_dir", lambda: temp_dir)
+        monkeypatch.setattr(rg, "get_workspace_dir", lambda session=None: temp_dir)
         output, is_error = await rg.report_generator_handler({
             "problem_description": "Maximize 3x + 2y",
             "problem_type": "LP",

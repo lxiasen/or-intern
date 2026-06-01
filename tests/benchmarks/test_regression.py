@@ -219,8 +219,6 @@ class TestTemplateSystem:
     @pytest.mark.parametrize("name", TEMPLATE_NAMES, ids=TEMPLATE_NAMES)
     def test_template_generates_valid_python(self, name):
         from agent.tools.templates import TEMPLATES, generate_from_template
-        if name == "vrp":
-            pytest.skip("VRP template has a pre-existing f-string scoping issue")
         tpl = TEMPLATES[name]
         code = generate_from_template(name, {})
         assert len(code) > 100, f"Template '{name}' generated too little code"
@@ -592,11 +590,11 @@ class TestEdgeCases:
         assert len(constraints) >= 2
 
     @pytest.mark.asyncio
-    async def test_solve_nonexistent_model(self):
+    async def test_solve_nonexistent_model(self, session):
         from agent.tools.solve_job import solve_job_handler
         output, is_error = await solve_job_handler({
             "model_path": "/nonexistent/model.py",
-        })
+        }, session=session)
         assert is_error
 
     @pytest.mark.asyncio
@@ -608,9 +606,9 @@ class TestEdgeCases:
         assert is_error
 
     @pytest.mark.asyncio
-    async def test_sensitivity_nonexistent_model(self):
+    async def test_sensitivity_nonexistent_model(self, session):
         from agent.tools.sensitivity_analysis import sensitivity_analysis_handler
         output, is_error = await sensitivity_analysis_handler({
             "model_path": "/nonexistent/model.py",
-        })
+        }, session=session)
         assert is_error

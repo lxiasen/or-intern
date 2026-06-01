@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agent.tools._output_dir import get_run_dir
+from agent.tools._output_dir import get_workspace_dir, suggest_filename, record_file
 
 logger = logging.getLogger(__name__)
 
@@ -1127,7 +1127,8 @@ for k in vehicles:
             break
         current = next_nodes[0]
         route.append(current)
-    print(f"  Vehicle {{k}}: {' -> '.join(str(n) for n in route)}")
+    route_str = ' -> '.join(str(n) for n in route)
+    print(f"  Vehicle {{k}}: {{route_str}}")
 """
 
 
@@ -1172,7 +1173,7 @@ TEMPLATES_TOOL_SPEC = {
 }
 
 
-async def templates_handler(args: dict[str, Any]) -> tuple[str, bool]:
+async def templates_handler(args: dict[str, Any], session=None) -> tuple[str, bool]:
     """Handler for problem_templates tool."""
     operation = args.get("operation", "list")
 
@@ -1200,13 +1201,19 @@ async def templates_handler(args: dict[str, Any]) -> tuple[str, bool]:
         if not name:
             return "Error: No template_name provided", True
         params = args.get("params", {})
-        solver = args.get("solver", "highs")
+        solver = args.get("solver") or (session.config.solver.default)
+        filename = args.get("filename", "")
 
         try:
             code = generate_from_template(name, params, solver)
-            rundir = get_run_dir()
-            model_file = rundir / "model.py"
+            workspace = get_workspace_dir(session)
+            if filename:
+                model_file = workspace / filename
+            else:
+                model_file = workspace / suggest_filename(workspace, f"model_{name}", ".py")
             model_file.write_text(code, encoding="utf-8")
+            record_file(workspace, model_file.name, file_type="pyomo_model",
+                        tool="problem_templates", note=f"Template: {name}")
             tpl = TEMPLATES[name]
             return (
                 f"## Model Generated from Template: {name}\n\n"

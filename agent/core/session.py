@@ -110,7 +110,7 @@ class Session:
             raise ValueError("Session requires a Config")
         tool_specs = tool_router.get_tool_specs_for_llm() if tool_router else []
         self.context_manager = context_manager or ContextManager(
-            model_max_tokens=_get_max_tokens_safe(config.model_name),
+            model_max_tokens=_get_max_tokens_safe(config.current_model.name),
             compact_size=0.1,
             untouched_messages=10,
             tool_specs=tool_specs,
@@ -124,6 +124,11 @@ class Session:
         self.current_plan: list[dict[str, str]] = []
         self._cancelled = asyncio.Event()
         self.pending_approval: Optional[dict[str, Any]] = None
+
+        from agent.tools._output_dir import get_workspace_dir
+        self.workspace_dir = get_workspace_dir(self)
+        self.context_manager.workspace_dir = self.workspace_dir
+
         self.sandbox = None
         self.sandbox_hardware: Optional[str] = None
         self.sandbox_preload_task: Optional[asyncio.Task] = None
@@ -250,7 +255,7 @@ class Session:
     ) -> list[NotificationRequest]:
         metadata = {
             "session_id": self.session_id,
-            "model": self.config.model_name,
+            "model": self.config.current_model.name,
             "event_type": event.event_type,
         }
 
@@ -323,10 +328,12 @@ class Session:
     def is_cancelled(self) -> bool:
         return self._cancelled.is_set()
 
-    def update_model(self, model_name: str) -> None:
-        """Switch the active model and update the context window limit."""
-        self.config.model_name = model_name
-        self.context_manager.model_max_tokens = _get_max_tokens_safe(model_name)
+    def update_model(self, model_index: int) -> None:
+        """Switch the active model by index and update the context window limit."""
+        self.config.active_model_index = model_index
+        self.context_manager.model_max_tokens = _get_max_tokens_safe(
+            self.config.current_model.name
+        )
 
     def set_auto_approval_policy(
         self, *, enabled: bool, cost_cap_usd: float | None
@@ -362,6 +369,14 @@ class Session:
             "remaining_usd": self.auto_approval_remaining_usd,
         }
 
+    @property
+    def current_model_name(self) -> str:
+        return self.config.current_model.name
+
+    @property
+    def current_model_reasoning_effort(self) -> str | None:
+        return self.config.current_model.reasoning_effort
+
     def effective_effort_for(self, model_name: str) -> str | None:
         """Resolve the effort level to actually send for ``model_name``.
 
@@ -373,7 +388,7 @@ class Session:
         """
         if model_name in self.model_effective_effort:
             return self.model_effective_effort[model_name]
-        return self.config.reasoning_effort
+        return self.config.current_model.reasoning_effort
 
     def increment_turn(self) -> None:
         """Increment turn counter (called after each user interaction)"""
@@ -398,7 +413,7 @@ class Session:
         )
 
         saved_path: str | None = None
-        if self.config.save_sessions and previous_non_system_count:
+        if self.config.session.save and previous_non_system_count:
             saved_path = self.save_and_upload_detached()
 
         from agent.tools.plan_tool import reset_current_plan
@@ -420,6 +435,19 @@ class Session:
         self.pending_approval = None
         self.auto_approval_estimated_spend_usd = 0.0
         self.reset_cancel()
+
+        try:
+            from agent.core.telemetry import reset_session as _telemetry_reset
+            _telemetry_reset(self)
+        except Exception:
+            pass
+
+        try:
+            from agent.tools._output_dir import get_workspace_dir
+            self.workspace_dir = get_workspace_dir(self)
+            self.context_manager.workspace_dir = self.workspace_dir
+        except Exception:
+            pass
 
         # Previous-session metadata is intentionally included for event
         # consumers and telemetry, even though the CLI currently prints only
@@ -457,10 +485,10 @@ class Session:
 
     async def auto_save_if_needed(self) -> None:
         """Check if auto-save should trigger and save if so (completely non-blocking)"""
-        if not self.config.save_sessions:
+        if not self.config.session.save:
             return
 
-        interval = self.config.auto_save_interval
+        interval = self.config.session.auto_save_interval
         if interval <= 0:
             return
 
@@ -500,7 +528,7 @@ class Session:
             "hf_username": self.hf_username,
             "session_start_time": self.session_start_time,
             "session_end_time": datetime.now().isoformat(),
-            "model_name": self.config.model_name,
+            "model_name": self.config.current_model.name,
             "total_cost_usd": total_cost_usd,
             "messages": [msg.model_dump() for msg in self.context_manager.items],
             "events": self.logged_events,

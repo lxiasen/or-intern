@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agent.tools._output_dir import get_run_dir
+from agent.tools._output_dir import get_workspace_dir, suggest_filename, record_file
 from agent.tools.uncertainty_modeler import (
     UncertaintyModeler,
     UncertaintySet,
@@ -245,12 +245,13 @@ ROBUST_BUILDER_TOOL_SPEC = {
 }
 
 
-async def robust_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
+async def robust_builder_handler(args: dict[str, Any], session=None) -> tuple[str, bool]:
     """Handler for robust_builder tool."""
     description = args.get("description", "")
     uncertainty_set = args.get("uncertainty_set", "box")
     gamma = args.get("gamma", 1.0)
-    solver = args.get("solver", "highs")
+    solver = args.get("solver") or (session.config.solver.default)
+    filename = args.get("filename", "")
 
     if not description:
         return "Error: No problem description provided", True
@@ -258,9 +259,14 @@ async def robust_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
     try:
         code = generate_robust_model(description, solver, gamma)
 
-        rundir = get_run_dir()
-        model_file = rundir / "model_robust.py"
+        workspace = get_workspace_dir(session)
+        if filename:
+            model_file = workspace / filename
+        else:
+            model_file = workspace / suggest_filename(workspace, "model_robust", ".py")
         model_file.write_text(code, encoding="utf-8")
+        record_file(workspace, model_file.name, file_type="pyomo_model",
+                     tool="robust_builder", note=f"robust ({uncertainty_set}): {description[:50]}")
 
         bounds = _extract_bounds(description)
 

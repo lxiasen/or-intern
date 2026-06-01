@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from agent.tools._output_dir import get_run_dir
+from agent.tools._output_dir import get_workspace_dir, suggest_filename, record_file
 
 logger = logging.getLogger(__name__)
 
@@ -123,9 +123,15 @@ def _extract_objective(desc: str) -> tuple[str, dict[str, float]]:
 
 def _detect_var_types(desc: str, var_names: list[str]) -> dict[str, str]:
     types: dict[str, str] = {}
+    clauses = re.split(r"[,;]", desc)
     for name in var_names:
         for vtype, pat in VAR_TYPE_PATTERNS.items():
-            if pat.search(desc) and re.search(rf"\b{re.escape(name)}\b", desc):
+            found = False
+            for clause in clauses:
+                if re.search(rf"\b{re.escape(name)}\b", clause) and pat.search(clause):
+                    found = True
+                    break
+            if found:
                 types[name] = vtype
                 break
         if name not in types:
@@ -275,7 +281,8 @@ def generate_pyomo_code(description: str, solver: str = "highs") -> str:
     for i, (lhs, op, rhs) in enumerate(constraints, 1):
         lhs_pyomo = _convert_lhs(lhs, var_types)
         rhs_pyomo = _convert_rhs(rhs, var_types)
-        lines.append(f"model.c{i} = Constraint(expr={lhs_pyomo} {op} {rhs_pyomo})")
+        pyomo_op = "==" if op == "=" else op
+        lines.append(f"model.c{i} = Constraint(expr={lhs_pyomo} {pyomo_op} {rhs_pyomo})")
 
     if indicators:
         lines.append("")
@@ -353,7 +360,9 @@ MODEL_BUILDER_TOOL_SPEC = {
         "Generate a Pyomo optimization model from a problem description. "
         "Supports LP, MIP, binary, integer, semi-continuous, SOS1/SOS2, "
         "indicator constraints, and piecewise functions. "
-        "Input: natural language description. Output: Pyomo code file path."
+        "Input: natural language description. Output: Pyomo code file path.\n"
+        "Use `filename` to choose a descriptive name (e.g., 'model_v1.py', "
+        "'model_relaxed.py'). If omitted, an auto-versioned name is used."
     ),
     "parameters": {
         "type": "object",
@@ -370,16 +379,24 @@ MODEL_BUILDER_TOOL_SPEC = {
                 "description": "Solver to use (default: highs)",
                 "default": "highs",
             },
+            "filename": {
+                "type": "string",
+                "description": (
+                    "Output filename (e.g., 'model_v1.py', 'model_production.py'). "
+                    "If omitted, auto-versioned name is used."
+                ),
+            },
         },
         "required": ["description"],
     },
 }
 
 
-async def model_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
+async def model_builder_handler(args: dict[str, Any], session=None) -> tuple[str, bool]:
     """Handler: analyze problem and write Pyomo model."""
     description = args.get("description", "")
-    solver = args.get("solver", "highs")
+    solver = args.get("solver") or (session.config.solver.default)
+    filename = args.get("filename", "")
 
     if not description:
         return "Error: No problem description provided", True
@@ -392,8 +409,10 @@ async def model_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
             solver = recommended_solver
 
         if framework == "cvxpy":
-            from agent.tools.cvxpy_builder import generate_cvxpy_code, cvxpy_builder_handler
-            return await cvxpy_builder_handler(args)
+            from agent.tools.cvxpy_builder import cvxpy_builder_handler
+            if not filename:
+                args["filename"] = ""
+            return await cvxpy_builder_handler(args, session=session)
 
         _, coeffs = _extract_objective(description)
         var_names = list(coeffs.keys())
@@ -405,9 +424,17 @@ async def model_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
 
         code = generate_pyomo_code(description, solver)
 
-        rundir = get_run_dir()
-        model_file = rundir / "model.py"
+        workspace = get_workspace_dir(session)
+        if filename:
+            model_file = workspace / filename
+        else:
+            model_file = workspace / suggest_filename(workspace, "model", ".py")
         model_file.write_text(code, encoding="utf-8")
+
+        verify_result = _verify_model(model_file, code)
+
+        record_file(workspace, model_file.name, file_type="pyomo_model",
+                     tool="model_builder", note=f"{problem_type}: {description[:60]}")
 
         detected_types = {k: v for k, v in var_types.items() if v != "continuous"}
         type_str = ", ".join(f"{k}={v}" for k, v in detected_types.items()) or "all continuous"
@@ -432,11 +459,36 @@ async def model_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
         )
         if features:
             result += f"**Features**: {'; '.join(features)}\n"
-        result += f"**Model file**: {model_file}\n\n"
-        result += f"Now use `solve_job` with model_path='{model_file}' to solve."
+        result += f"**Model file**: {model_file}\n"
+
+        if verify_result:
+            result += f"\n**Verification**: {verify_result}\n"
+            result += "The model has issues. Use `model_checker` for details, then fix before solving.\n"
+        else:
+            result += "\n**Verification**: Passed (syntax + import test OK)\n"
+
+        result += f"\nNow use `solve_job` with model_path='{model_file}' to solve."
 
         return result, False
 
     except Exception as e:
         logger.error(f"model_builder failed: {e}")
         return f"Error building model: {e}", True
+
+
+def _verify_model(model_file: Path, code: str) -> str | None:
+    """Run quick verification on generated model code.
+
+    Returns error description if verification fails, None if OK.
+    """
+    from agent.tools.model_checker import _check_syntax, _run_import_test
+
+    syntax_errors = _check_syntax(code)
+    if syntax_errors:
+        return f"Syntax error: {syntax_errors[0]}"
+
+    runtime_errors = _run_import_test(code)
+    if runtime_errors:
+        return f"Import/runtime error: {runtime_errors[0]}"
+
+    return None

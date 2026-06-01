@@ -270,7 +270,7 @@ def _needs_approval(
     """Legacy sync approval predicate used by tests and CLI display helpers."""
     if _is_scheduled_hf_job_run(tool_name, tool_args):
         return True
-    if config and config.yolo_mode:
+    if config and config.approval.yolo_mode:
         return False
     return _base_needs_approval(tool_name, tool_args, config)
 
@@ -281,7 +281,7 @@ def _session_auto_approval_enabled(session: Session | None) -> bool:
 
 def _effective_yolo_enabled(session: Session | None, config: Config | None) -> bool:
     return bool(
-        (config and config.yolo_mode) or _session_auto_approval_enabled(session)
+        (config and config.approval.yolo_mode) or _session_auto_approval_enabled(session)
     )
 
 
@@ -517,7 +517,7 @@ async def _heal_effort_and_rebuild_params(
         probe_effort,
     )
 
-    model = session.config.model_name
+    model = session.config.current_model.name
     if _is_thinking_unsupported(error):
         session.model_effective_effort[model] = None
         logger.info("healed: %s doesn't support thinking — stripped", model)
@@ -525,9 +525,11 @@ async def _heal_effort_and_rebuild_params(
         try:
             outcome = await probe_effort(
                 model,
-                session.config.reasoning_effort,
+                session.config.current_model.reasoning_effort,
                 session.hf_token,
                 session=session,
+                api_key=session.config.current_model.api_key,
+                api_base=session.config.current_model.api_base,
             )
             session.model_effective_effort[model] = outcome.effective_effort
             logger.info(
@@ -545,6 +547,8 @@ async def _heal_effort_and_rebuild_params(
         model,
         session.hf_token,
         reasoning_effort=session.effective_effort_for(model),
+        api_key=session.config.current_model.api_key,
+        api_base=session.config.current_model.api_base,
     )
 
 
@@ -615,10 +619,12 @@ async def _compact_and_notify(session: Session) -> None:
     )
     try:
         await cm.compact(
-            model_name=session.config.model_name,
+            model_name=session.config.current_model.name,
             tool_specs=session.tool_router.get_tool_specs_for_llm(),
             hf_token=session.hf_token,
             session=session,
+            api_key=session.config.current_model.api_key,
+            api_base=session.config.current_model.api_base,
         )
     except CompactionFailedError as e:
         logger.error(
@@ -969,7 +975,7 @@ async def _call_llm_streaming(
 
     usage = await telemetry.record_llm_call(
         session,
-        model=llm_params.get("model", session.config.model_name),
+        model=llm_params.get("model", session.config.current_model.name),
         response=final_usage_chunk,
         latency_ms=int((time.monotonic() - t_start) * 1000),
         finish_reason=finish_reason,
@@ -1096,7 +1102,7 @@ async def _call_llm_non_streaming(
 
     usage = await telemetry.record_llm_call(
         session,
-        model=llm_params.get("model", session.config.model_name),
+        model=llm_params.get("model", session.config.current_model.name),
         response=response,
         latency_ms=int((time.monotonic() - t_start) * 1000),
         finish_reason=finish_reason,
@@ -1185,7 +1191,7 @@ class Handlers:
         iteration = 0
         final_response = None
         errored = False
-        max_iterations = session.config.max_iterations
+        max_iterations = session.config.current_model.max_iterations
         no_tool_incomplete_plan_retries = 0
 
         while max_iterations == -1 or iteration < max_iterations:
@@ -1243,11 +1249,13 @@ class Handlers:
                 # available; fall back to the raw preference for models we
                 # haven't probed yet (e.g. research sub-model).
                 llm_params = _resolve_llm_params(
-                    session.config.model_name,
+                    session.config.current_model.name,
                     session.hf_token,
                     reasoning_effort=session.effective_effort_for(
-                        session.config.model_name
+                        session.config.current_model.name
                     ),
+                    api_key=session.config.current_model.api_key,
+                    api_base=session.config.current_model.api_base,
                 )
                 if session.stream:
                     llm_result = await _call_llm_streaming(
@@ -1735,6 +1743,11 @@ class Handlers:
         removed = session.context_manager.undo_last_turn()
         if not removed:
             logger.warning("Undo: no user message found to remove")
+        try:
+            from agent.core import telemetry
+            telemetry.reset_session(session)
+        except Exception:
+            pass
         await session.send_event(Event(event_type="undo_complete"))
 
     @staticmethod
@@ -2017,7 +2030,7 @@ class Handlers:
     async def shutdown(session: Session) -> bool:
         """Handle shutdown (like shutdown in codex.rs:1329)"""
         # Save session trajectory if enabled (fire-and-forget, returns immediately)
-        if session.config.save_sessions:
+        if session.config.session.save:
             logger.info("Saving session...")
             repo_id = getattr(session.config, "session_dataset_repo", "")
             _ = session.save_and_upload_detached(repo_id)
@@ -2118,7 +2131,7 @@ async def submission_loop(
     logger.info("Agent loop started")
 
     # OR-Intern: Skip HF upload retry (not applicable)
-    if config and config.save_sessions:
+    if config and config.session.save:
         logger.debug("Session saving enabled, upload retry skipped (OR-Intern)")
 
     try:
@@ -2155,7 +2168,7 @@ async def submission_loop(
 
     finally:
         # Emergency save if session saving is enabled and shutdown wasn't called properly
-        if session.config.save_sessions and session.is_running:
+        if session.config.session.save and session.is_running:
             logger.info("Emergency save: preserving session before exit...")
             try:
                 local_path = session.save_and_upload_detached()

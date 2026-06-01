@@ -1,0 +1,137 @@
+# OR-Intern Configuration
+#
+# Copy this file to `config.yaml` and customize it for your environment:
+#   cp config.example.yaml config.yaml
+#
+# Environment variables can be referenced using $VAR or ${VAR} syntax.
+# They are resolved from your shell environment or .env file.
+#
+# Config file search order:
+#   1. OR_INTERN_CONFIG environment variable (if set)
+#   2. ./config.yaml (current working directory)
+#   3. ~/.config/or-intern/config.yaml (user config directory)
+#   4. configs/cli_config.json (legacy fallback)
+
+# ============================================================================
+# Models Configuration
+# ============================================================================
+# Available LLM models for the agent. The first model is used by default.
+# Switch models at runtime with /model <index>.
+models:
+  - name: ${OR_INTERN_MODEL:-openai/qwen3.6-plus}
+    display_name: Qwen3.6-Plus
+    api_key: ${OPENAI_API_KEY:-}
+    api_base: ${OPENAI_API_BASE:-}
+    max_iterations: ${OR_INTERN_MAX_ITERATIONS:-500}
+
+  # - name: anthropic/claude-sonnet-4-20250514
+  #   display_name: Claude Sonnet 4
+  #   api_key: ${ANTHROPIC_API_KEY:-}
+  #   reasoning_effort: high
+  #   max_iterations: 500
+
+  # - name: ollama/qwen3:32b
+  #   display_name: Qwen3 32B (Local)
+  #   api_base: http://localhost:11434/v1
+  #   max_iterations: 200
+
+# ============================================================================
+# Solver Configuration
+# ============================================================================
+# Default solver settings for optimization problems
+solver:
+  # Default solver for optimization problems.
+  # Open-source: highs, scip, glpk, cbc, ipopt
+  # Commercial (require approval): gurobi, cplex, xpress, mosek
+  default: highs
+
+  # Maximum time (seconds) for a single solve operation.
+  timeout: 3600
+
+# ============================================================================
+# Session Configuration
+# ============================================================================
+# Session persistence and logging settings
+session:
+  # Whether to automatically save session trajectories.
+  save: true
+
+  # Save interval: save every N turns.
+  auto_save_interval: 1
+
+  # Directory for session log files.
+  log_dir: session_logs
+
+  # Heartbeat interval (seconds) for periodic session persistence.
+  heartbeat_interval: 60
+
+# ============================================================================
+# Tool Runtime
+# ============================================================================
+# Where tools execute
+tool_runtime: local  # "local" (on your machine) or "sandbox" (remote)
+
+# ============================================================================
+# Approval Policy
+# ============================================================================
+# Controls when the agent needs user approval before executing operations
+approval:
+  # YOLO mode: auto-approve all tool calls without asking.
+  # WARNING: Only enable for testing or trusted environments.
+  # Override via env: OR_INTERN_YOLO (values: true, false, 1, 0, yes, no)
+  yolo_mode: ${OR_INTERN_YOLO:-false}
+
+  # Maximum estimated cost (USD) for auto-approval without user confirmation.
+  cost_cap_usd: 1.0
+
+  # Require confirmation for expensive solves (commercial solvers, long timeouts).
+  confirm_expensive: true
+
+# ============================================================================
+# MCP Servers (Model Context Protocol)
+# ============================================================================
+# External MCP servers to connect for additional tools.
+# Format:
+#   mcp_servers:
+#     server_name:
+#       transport: http | stdio
+#       url: https://mcp-server.example.com
+#       headers:
+#         Authorization: Bearer $MCP_TOKEN
+mcp_servers: {}
+
+# ============================================================================
+# Messaging (Notifications)
+# ============================================================================
+# Out-of-band notifications sent to external channels (Slack, etc.)
+# when specific events occur during agent execution.
+#
+# This is NOT a session toggle — it only controls push notifications
+# for events like approval_required, error, turn_complete.
+messaging:
+  enabled: false
+
+  # Events that trigger automatic notifications.
+  # Supported: approval_required, error, turn_complete
+  auto_event_types:
+    - approval_required
+    - error
+    - turn_complete
+
+  # Notification destinations (e.g., Slack channels).
+  # Each destination has:
+  #   - provider: "slack"
+  #   - token: Slack bot token (use $VAR to reference .env)
+  #   - channel: Slack channel ID
+  #   - allow_agent_tool: allow the notify tool to send here
+  #   - allow_auto_events: allow automatic event notifications here
+  destinations: {}
+    # Example:
+    # slack_ops:
+    #   provider: slack
+    #   token: $SLACK_BOT_TOKEN
+    #   channel: C0123456789
+    #   allow_agent_tool: true
+    #   allow_auto_events: true
+    #   username: OR-Intern Bot
+    #   icon_emoji: ":robot_face:"

@@ -1,6 +1,10 @@
 # Environment variables (contains API keys)
 .env
 
+# User configuration (contains API key references, customize per environment)
+config.yaml
+config.yml
+
 # Python
 __pycache__/
 *.py[cod]
@@ -31,3 +35,6 @@ outputs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Internal design documents
+.sepc/

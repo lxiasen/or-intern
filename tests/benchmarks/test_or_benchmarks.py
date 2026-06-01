@@ -14,8 +14,8 @@ BENCHMARK_PROBLEMS = [
         "name": "Simple LP",
         "type": "LP",
         "description": "maximize 3x + 2y subject to x + y <= 10, x <= 8, y <= 6, x >= 0, y >= 0",
-        "expected_objective": 30.0,
-        "expected_variables": {"x": 10.0, "y": 0.0},
+        "expected_objective": 28.0,
+        "expected_variables": {"x": 8.0, "y": 2.0},
         "tolerance": 0.01,
     },
     {
@@ -27,7 +27,7 @@ BENCHMARK_PROBLEMS = [
             "x1 binary, x2 binary, x3 binary"
         ),
         "expected_objective": 220.0,
-        "expected_variables": {"x1": 1.0, "x2": 1.0, "x3": 1.0},
+        "expected_variables": {"x1": 0.0, "x2": 1.0, "x3": 1.0},
         "tolerance": 0.01,
     },
     {
@@ -37,8 +37,8 @@ BENCHMARK_PROBLEMS = [
             "maximize 20*a + 30*b subject to "
             "a + 2*b <= 40, 3*a + b <= 30, a >= 0, b >= 0"
         ),
-        "expected_objective": 600.0,
-        "expected_variables": {"a": 0.0, "b": 20.0},
+        "expected_objective": 620.0,
+        "expected_variables": {"a": 4.0, "b": 18.0},
         "tolerance": 0.1,
     },
     {
@@ -50,7 +50,7 @@ BENCHMARK_PROBLEMS = [
             "2*f1 + f2 >= 15, "
             "f1 >= 0, f2 >= 0, f3 >= 0"
         ),
-        "expected_objective": 15.0,
+        "expected_objective": 17.5,
         "expected_variables": {"f1": 7.5, "f2": 0.0, "f3": 2.5},
         "tolerance": 0.1,
     },
@@ -63,8 +63,8 @@ BENCHMARK_PROBLEMS = [
             "x11 + x21 = 25, x12 + x22 = 25, "
             "x11 >= 0, x12 >= 0, x21 >= 0, x22 >= 0"
         ),
-        "expected_objective": 950.0,
-        "expected_variables": {"x11": 25.0, "x12": 5.0, "x21": 0.0, "x22": 20.0},
+        "expected_objective": 850.0,
+        "expected_variables": {"x11": 5.0, "x12": 25.0, "x21": 20.0, "x22": 0.0},
         "tolerance": 0.1,
     },
     {
@@ -77,7 +77,7 @@ BENCHMARK_PROBLEMS = [
             "y1 binary, y2 binary, y3 binary, "
             "x11 >= 0, x12 >= 0, x21 >= 0, x22 >= 0, x31 >= 0, x32 >= 0"
         ),
-        "expected_objective": 2800.0,
+        "expected_objective": 1540.0,
         "tolerance": 100.0,
     },
     {
@@ -91,7 +91,7 @@ BENCHMARK_PROBLEMS = [
             "x21 binary, x22 binary, x23 binary, "
             "x31 binary, x32 binary, x33 binary"
         ),
-        "expected_objective": 12.0,
+        "expected_objective": 11.0,
         "expected_variables": {},
         "tolerance": 0.01,
     },
@@ -118,30 +118,35 @@ class TestBenchmarkProblems:
 
     @pytest.mark.parametrize("problem", BENCHMARK_PROBLEMS[:3], ids=[p["name"] for p in BENCHMARK_PROBLEMS[:3]])
     @pytest.mark.asyncio
-    async def test_end_to_end_solve(self, problem, temp_dir, monkeypatch):
+    async def test_end_to_end_solve(self, problem, temp_dir, monkeypatch, session):
         """Test end-to-end solve for first 3 benchmark problems."""
         from agent.tools.model_builder import model_builder_handler
         from agent.tools.solve_job import solve_job_handler
-        from agent.tools._output_dir import get_run_dir
 
         monkeypatch.setattr(
-            "agent.tools._output_dir.get_run_dir",
-            lambda: temp_dir,
+            "agent.tools._output_dir.get_workspace_dir",
+            lambda session=None: temp_dir,
+        )
+        monkeypatch.setattr(
+            "agent.tools.model_builder.get_workspace_dir",
+            lambda session=None: temp_dir,
         )
 
         output, is_error = await model_builder_handler({
             "description": problem["description"],
-        })
+        }, session=session)
         assert not is_error
 
-        model_path = temp_dir / "model.py"
+        py_files = list(temp_dir.glob("*.py"))
+        assert len(py_files) >= 1
+        model_path = py_files[0]
         assert model_path.exists()
 
         output, is_error = await solve_job_handler({
             "model_path": str(model_path),
             "solver": "highs",
             "timeout": 30,
-        })
+        }, session=session)
 
         if not is_error:
             assert "OPTIMAL" in output or "optimal" in output.lower()

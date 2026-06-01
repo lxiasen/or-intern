@@ -50,23 +50,23 @@ class TestSensitivityAnalysisHandler:
     """Test the async handler."""
 
     @pytest.mark.asyncio
-    async def test_missing_model_path(self):
+    async def test_missing_model_path(self, session):
         from agent.tools.sensitivity_analysis import sensitivity_analysis_handler
-        output, is_error = await sensitivity_analysis_handler({"model_path": ""})
+        output, is_error = await sensitivity_analysis_handler({"model_path": ""}, session=session)
         assert is_error
         assert "No model path" in output
 
     @pytest.mark.asyncio
-    async def test_nonexistent_model_file(self):
+    async def test_nonexistent_model_file(self, session):
         from agent.tools.sensitivity_analysis import sensitivity_analysis_handler
         output, is_error = await sensitivity_analysis_handler({
             "model_path": "/nonexistent/model.py"
-        })
+        }, session=session)
         assert is_error
         assert "not found" in output.lower()
 
     @pytest.mark.asyncio
-    async def test_valid_model_runs(self, temp_dir, sample_model_code):
+    async def test_valid_model_runs(self, temp_dir, sample_model_code, session):
         from agent.tools.sensitivity_analysis import sensitivity_analysis_handler
         model_path = temp_dir / "model.py"
         model_path.write_text(sample_model_code, encoding="utf-8")
@@ -74,6 +74,6 @@ class TestSensitivityAnalysisHandler:
             "model_path": str(model_path),
             "solver": "highs",
             "operation": "dual",
-        })
+        }, session=session)
         assert not is_error
         assert "Sensitivity Analysis" in output

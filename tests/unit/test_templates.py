@@ -104,14 +104,14 @@ class TestTemplatesHandler:
         assert "tsp" in output
 
     @pytest.mark.asyncio
-    async def test_generate_operation(self, temp_dir, monkeypatch):
-        from agent.tools import _output_dir
-        monkeypatch.setattr(_output_dir, "get_run_dir", lambda: temp_dir)
+    async def test_generate_operation(self, temp_dir, monkeypatch, session):
+        from agent.tools import templates as _tpl
+        monkeypatch.setattr(_tpl, "get_workspace_dir", lambda session=None: temp_dir)
         from agent.tools.templates import templates_handler
         output, is_error = await templates_handler({
             "operation": "generate",
             "template_name": "knapsack",
             "parameters": {"capacity": 100, "items": [{"weight": 10, "value": 60}]},
-        })
+        }, session=session)
         assert not is_error
         assert "Generated" in output or "model" in output.lower()

@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from agent.tools._output_dir import get_run_dir
+from agent.tools._output_dir import get_workspace_dir, suggest_filename, record_file
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +261,7 @@ VISUALIZATION_TOOL_SPEC = {
 }
 
 
-async def visualization_handler(args: dict[str, Any]) -> tuple[str, bool]:
+async def visualization_handler(args: dict[str, Any], session=None) -> tuple[str, bool]:
     """Handler for visualization tool."""
     chart_type = args.get("chart_type", "all")
     variables = args.get("variables", {})
@@ -271,11 +271,11 @@ async def visualization_handler(args: dict[str, Any]) -> tuple[str, bool]:
     gap_data = args.get("gap_data", [])
     constraints = args.get("constraints", {})
     pareto_data = args.get("pareto_data", [])
+    filename_prefix = args.get("filename_prefix", "")
 
     if chart_type in ("variables", "all") and not variables:
         return "No variable data provided for visualization. Pass `variables` dict, e.g. {\"x\": 10, \"y\": 0}.", True
 
-    # Validate variables values are numeric
     if variables:
         bad = {k: v for k, v in variables.items() if not isinstance(v, (int, float))}
         if bad:
@@ -286,33 +286,48 @@ async def visualization_handler(args: dict[str, Any]) -> tuple[str, bool]:
     except ImportError:
         return "matplotlib is not installed. Run: uv add matplotlib", True
 
-    rundir = get_run_dir()
+    workspace = get_workspace_dir(session)
+    prefix = filename_prefix.rstrip("_") if filename_prefix else ""
     charts = []
+
+    def _chart_path(base_name: str) -> str:
+        name = f"{prefix}_{base_name}" if prefix else base_name
+        return str(workspace / suggest_filename(workspace, name, ".png"))
 
     try:
         if chart_type in ("variables", "all") and variables:
-            path = str(rundir / "variables.png")
+            path = _chart_path("variables")
             _generate_variable_chart(variables, objective, path)
+            record_file(workspace, Path(path).name, file_type="chart",
+                        tool="visualization", note="Variable values bar chart")
             charts.append(("Variable Values", path))
 
         if chart_type in ("sensitivity", "all") and param_data:
-            path = str(rundir / "sensitivity.png")
+            path = _chart_path("sensitivity")
             _generate_sensitivity_chart(param_data, var_name, path)
+            record_file(workspace, Path(path).name, file_type="chart",
+                        tool="visualization", note=f"Sensitivity: {var_name}")
             charts.append(("Sensitivity Analysis", path))
 
         if chart_type in ("heatmap", "all") and constraints:
-            path = str(rundir / "constraint_heatmap.png")
+            path = _chart_path("constraint_heatmap")
             _generate_constraint_heatmap(constraints, path)
+            record_file(workspace, Path(path).name, file_type="chart",
+                        tool="visualization", note="Constraint tightness heatmap")
             charts.append(("Constraint Tightness Heatmap", path))
 
         if chart_type in ("pareto", "all") and pareto_data:
-            path = str(rundir / "pareto_front.png")
+            path = _chart_path("pareto_front")
             _generate_pareto_front(pareto_data, path)
+            record_file(workspace, Path(path).name, file_type="chart",
+                        tool="visualization", note="Pareto front")
             charts.append(("Pareto Front", path))
 
         if gap_data and chart_type in ("all",):
-            path = str(rundir / "gap_progress.png")
+            path = _chart_path("gap_progress")
             _generate_gap_chart(gap_data, path)
+            record_file(workspace, Path(path).name, file_type="chart",
+                        tool="visualization", note="Solver gap convergence")
             charts.append(("Solver Progress", path))
 
         if not charts:

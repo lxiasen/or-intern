@@ -160,6 +160,8 @@ async def probe_effort(
     preference: str | None,
     hf_token: str | None,
     session: Any = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
 ) -> ProbeOutcome:
     """Walk the cascade for ``preference`` on ``model_name``.
 
@@ -195,6 +197,8 @@ async def probe_effort(
                 hf_token,
                 reasoning_effort=effort,
                 strict=True,
+                api_key=api_key,
+                api_base=api_base,
             )
         except UnsupportedEffortError:
             # Provider can't even accept this effort name (e.g. "max" on

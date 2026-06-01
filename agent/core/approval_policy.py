@@ -67,8 +67,8 @@ def needs_solver_approval(solver_name: str, timeout: int = 0,
 
     # Rule 2: Large timeout → require approval
     max_time = _DEFAULT_MAX_SOLVE_TIME_S
-    if config and hasattr(config, "solver_timeout"):
-        max_time = config.solver_timeout
+    if config and hasattr(config, "solver"):
+        max_time = config.solver.timeout
 
     if timeout > max_time:
         return True, (
@@ -78,8 +78,8 @@ def needs_solver_approval(solver_name: str, timeout: int = 0,
 
     # Rule 3: High estimated cost → require approval
     max_cost = _DEFAULT_MAX_SOLVE_COST_USD
-    if config and hasattr(config, "auto_approval_cost_cap_usd"):
-        max_cost = config.auto_approval_cost_cap_usd
+    if config and hasattr(config, "approval"):
+        max_cost = config.approval.cost_cap_usd
 
     if estimated_cost > max_cost:
         return True, (
@@ -120,7 +120,7 @@ def estimate_solve_cost(solver_name: str, timeout: int,
 
 def auto_approval_allowed(config: Any) -> bool:
     """Check if auto-approval is globally enabled."""
-    if config and hasattr(config, "yolo_mode") and config.yolo_mode:
+    if config and hasattr(config, "approval") and config.approval.yolo_mode:
         return True
     return False
 

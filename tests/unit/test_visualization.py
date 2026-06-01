@@ -155,8 +155,8 @@ class TestVisualizationHandler:
 
     @pytest.mark.asyncio
     async def test_valid_variable_chart(self, temp_dir, monkeypatch):
-        from agent.tools import _output_dir
-        monkeypatch.setattr(_output_dir, "get_run_dir", lambda: temp_dir)
+        from agent.tools import visualization as _viz
+        monkeypatch.setattr(_viz, "get_workspace_dir", lambda session=None: temp_dir)
         from agent.tools.visualization import visualization_handler
         output, is_error = await visualization_handler({
             "chart_type": "variables",
@@ -165,12 +165,12 @@ class TestVisualizationHandler:
         })
         assert not is_error
         assert "Visualization Results" in output
-        assert "variables.png" in output
+        assert "variables" in output.lower()
 
     @pytest.mark.asyncio
     async def test_heatmap_chart(self, temp_dir, monkeypatch):
-        from agent.tools import _output_dir
-        monkeypatch.setattr(_output_dir, "get_run_dir", lambda: temp_dir)
+        from agent.tools import visualization as _viz
+        monkeypatch.setattr(_viz, "get_workspace_dir", lambda session=None: temp_dir)
         from agent.tools.visualization import visualization_handler
         output, is_error = await visualization_handler({
             "chart_type": "heatmap",
@@ -181,8 +181,8 @@ class TestVisualizationHandler:
 
     @pytest.mark.asyncio
     async def test_pareto_chart(self, temp_dir, monkeypatch):
-        from agent.tools import _output_dir
-        monkeypatch.setattr(_output_dir, "get_run_dir", lambda: temp_dir)
+        from agent.tools import visualization as _viz
+        monkeypatch.setattr(_viz, "get_workspace_dir", lambda session=None: temp_dir)
         from agent.tools.visualization import visualization_handler
         output, is_error = await visualization_handler({
             "chart_type": "pareto",

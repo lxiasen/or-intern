@@ -1,53 +1,60 @@
-# AGENTS.md — OR-Intern 开发指南
+# AGENTS.md — OR-Intern Developer Guide
 
-## 项目概述
+## Overview
 
-OR-Intern 是一个运筹优化（Operations Research）领域的 AI Agent，能从自然语言描述自动生成数学模型、调用求解器、验证解、进行灵敏度分析、生成可视化图表和报告。
+OR-Intern is an AI agent for Operations Research — it can automatically generate mathematical models from natural language descriptions, invoke solvers, verify solutions, perform sensitivity analysis, and produce visualizations and reports.
 
-**一句话愿景**：让每一个运筹优化问题，从描述到求解，只需要一次对话。
+**Vision**: From description to solution, in a single conversation.
 
-## 架构
+## Architecture
 
 ```
 User Input → Agent Loop → LLM (qwen/claude/gpt via LiteLLM)
                     ↓
-              Tool Router (18 tools)
+              Tool Router (20 tools)
                     ↓
-    ┌── Infrastructure ──┬── OR Core ──┬── Analysis ──┐
-    │ bash, read, write, │ model_builder,  │ sensitivity, │
-    │ edit, plan_tool    │ solver_selector, │ visualization,│
-    │                    │ solve_job,       │ report_gen,   │
-    │                    │ validate_solution,│ compare_solvers│
-    │                    │ or_papers,       │               │
-    │                    │ data_handler     │               │
-    └─────────────────────┴────────────────┴───────────────┘
+    ┌── Infrastructure ──┬── OR Core ──────┬── Analysis ──────┐
+    │ bash, read, write, │ model_builder,   │ sensitivity,     │
+    │ edit, plan_tool,   │ cvxpy_builder,   │ visualization,   │
+    │ notify_tool        │ robust_builder,  │ report_gen,      │
+    │                    │ stochastic_builder│ compare_solvers  │
+    │                    │ problem_templates│                  │
+    │                    │ model_checker,   │                  │
+    │                    │ solver_selector, │                  │
+    │                    │ solve_job,       │                  │
+    │                    │ validate_solution,│                  │
+    │                    │ or_papers,       │                  │
+    │                    │ data_handler     │                  │
+    └─────────────────────┴────────────────┴──────────────────┘
 ```
 
-### 分层
+### Layers
 
-| 层 | 目录 | 说明 |
-|----|------|------|
-| CLI 入口 | `agent/main.py` | 交互模式 + 无头模式 |
-| Agent 引擎 | `agent/core/` | agent_loop、session、doom_loop、approval_policy |
-| 上下文管理 | `agent/context_manager/` | 压缩策略、求解日志摘要 |
-| 工具层 | `agent/tools/` | 18 个工具实现 |
-| 系统提示 | `agent/prompts/system_prompt.yaml` | 6 阶段质量门控工作流 |
-| 配置 | `configs/cli_config.json` | 模型、求解器、审批策略 |
-| 测试 | `tests/` | unit + integration + benchmarks |
+| Layer | Directory | Description |
+|-------|-----------|-------------|
+| CLI Entry | `agent/main.py` | Interactive + headless modes, with /undo /new /compact /sessions /resume commands |
+| Agent Engine | `agent/core/` | agent_loop, session, doom_loop, approval_policy, telemetry, session_resume |
+| Context Manager | `agent/context_manager/` | Compaction strategy, solve log summarization, **workspace file listing injection** |
+| Tool Layer | `agent/tools/` | 20 tool implementations |
+| Messaging | `agent/messaging/` | Notification gateway (Slack, etc.), auto-event push |
+| System Prompt | `agent/prompts/system_prompt.yaml` | 6-phase quality gate workflow + workspace hints |
+| Config | `config.example.yaml` → `config.yaml` | Nested YAML structure (model/solver/session/approval/messaging) |
+| Secrets | `.env.example` → `.env` | API keys only |
+| Tests | `tests/` | unit + integration + benchmarks + regression |
 
-## 关键设计决策
+## Key Design Decisions
 
-### 1. 6 阶段质量门控工作流
+### 1. 6-Phase Quality Gate Workflow
 
-System prompt 强制 LLM 走完所有阶段：
+System prompt forces the LLM through all phases:
 
 ```
-Phase 1: MODEL     → model_builder
+Phase 1: MODEL     → model_builder / cvxpy_builder / robust_builder / stochastic_builder
 Phase 2: SOLVE     → solver_selector + solve_job
   ┌── Quality Gate ──┐
-  │ OPTIMAL, gap≈0   │→ 继续
-  │ gap>5% / 慢      │→ 换求解器(最多3次)
-  │ INFEASIBLE       │→ 诊断冲突
+  │ OPTIMAL, gap≈0   │→ Continue
+  │ gap>5% / slow    │→ Switch solver (max 3 attempts)
+  │ INFEASIBLE       │→ Diagnose conflict
   └──────────────────┘
 Phase 3: VALIDATE  → validate_solution
 Phase 4: ANALYZE   → sensitivity_analysis
@@ -55,72 +62,135 @@ Phase 5: VISUALIZE → visualization
 Phase 6: REPORT    → report_generator
 ```
 
-### 2. 统一输出目录
+### 2. Session-Scoped Workspace
 
-所有产出文件写入 `outputs/run_<timestamp>/`：
-- `model.py` — Pyomo 模型
-- `variables.png` — 变量柱状图
-- `sensitivity.png` — 灵敏度图
-- `report.md` — 完整报告
+Each session has a persistent workspace directory `outputs/<session_id[:8]>/`:
 
-协调机制：`agent/tools/_output_dir.py` 中的 `get_run_dir()` 使用标记文件。
+- **All tool outputs write to the same directory**, files persist across conversation turns
+- LLM can name files via the `filename` parameter (e.g., `model_v2_relaxed.py`)
+- If no filename specified, `suggest_filename()` auto-adds version suffixes (`model.py` → `model_v2.py`)
+- `.workspace_state.json` auto-records file metadata (type, tool, timestamp, notes)
+- `context_manager._inject_workspace_context()` injects the file listing into the system prompt before each turn
 
-### 3. 求解器集成
+Coordination: `agent/tools/_output_dir.py` with `get_workspace_dir(session)` + `record_file()` + `list_workspace_files()`.
 
-默认使用 HiGHS（开源、快速）。SCIP 作为备选。Gurobi/CPLEX 需要审批。
+### 3. Configuration System (Nested YAML)
 
-### 4. Gap/Bound 信息
+Configuration is split into two files with clear responsibilities:
 
-`solve_job` 返回 Status、Gap、Lower Bound、Upper Bound、Solver Time，供 Quality Gate 决策。
+**`config.yaml`** (structured configuration):
+```yaml
+model:
+  name: openai/qwen3.6-plus
+  max_iterations: 500
 
-## 开发环境
+solver:
+  default: highs
+  timeout: 3600
+
+session:
+  save: true
+  auto_save_interval: 1
+  log_dir: session_logs
+  heartbeat_interval: 60
+
+approval:
+  yolo_mode: false
+  cost_cap_usd: 1.0
+  confirm_expensive: true
+
+messaging:
+  enabled: false
+  auto_event_types: [approval_required, error, turn_complete]
+  destinations: {}
+```
+
+**`.env`** (secrets only, gitignored):
+```bash
+OPENAI_API_KEY=sk-your-key-here
+# ANTHROPIC_API_KEY=your-key
+# SLACK_BOT_TOKEN=xoxb-your-token
+```
+
+Config file search order: `OR_INTERN_CONFIG` → `./config.yaml` → `~/.config/or-intern/config.yaml`
+
+YAML supports `$VAR`, `${VAR}`, and `${VAR:-default}` for environment variable references.
+
+Pydantic model structure: `Config` → `ModelConfig` + `SolverConfig` + `SessionConfig` + `ApprovalConfig` + `MessagingConfig`
+
+### 4. Session Restore and Undo
+
+| Command | Function |
+|---------|----------|
+| `/undo` | Undo last conversation turn (remove last user message + all subsequent assistant/tool messages) |
+| `/new` | Start new conversation (save old session, clear context, keep model/config) |
+| `/compact` | Manually trigger context compaction (only if above 85% threshold) |
+| `/sessions` | List saved sessions in `session_logs/` |
+| `/resume <path>` | Restore session from JSON log (rebuild message history + workspace file listing) |
+
+### 5. Solver Integration
+
+Default: HiGHS (open-source, fast). SCIP as fallback. Gurobi/CPLEX require approval.
+
+### 6. Gap/Bound Information
+
+`solve_job` returns Status, Gap, Lower Bound, Upper Bound, Solver Time for Quality Gate decisions.
+
+## Development Environment
 
 ```bash
-# 安装依赖
+# Install dependencies
 cd or-intern
 uv sync
 
-# 配置 .env
+# Configure
+cp config.example.yaml config.yaml
 cp .env.example .env
-# 编辑 .env 填入 OPENAI_API_KEY
+# Edit .env to add OPENAI_API_KEY
 
-# 运行测试
+# Run tests
 uv run pytest tests/ -v
 
-# 启动 CLI
+# Start CLI
 uv run or-intern
 ```
 
-## 添加新工具
+## Adding New Tools
 
-1. 在 `agent/tools/` 创建工具文件（如 `my_tool.py`）
-2. 定义 `MY_TOOL_SPEC`（JSON Schema 格式）和 `my_tool_handler`（async 函数）
-3. 在 `agent/core/tools.py` 的 `create_builtin_tools()` 中注册
-4. 在 `agent/prompts/system_prompt.yaml` 的 Available Tools 中添加说明
-5. 在 `tests/unit/` 添加单元测试
+1. Create tool file in `agent/tools/` (e.g., `my_tool.py`)
+2. Define `MY_TOOL_SPEC` (JSON Schema) and `my_tool_handler` (async function with `session` parameter)
+3. Use `get_workspace_dir(session)` in handler to get workspace directory
+4. Register in `agent/core/tools.py` in `create_builtin_tools()`
+5. Add description in `agent/prompts/system_prompt.yaml` under Available Tools
+6. Add unit tests in `tests/unit/`
 
-## 测试
+## Testing
 
 ```bash
-# 全部测试（45 个）
+# All tests (477)
 uv run pytest tests/ -v
 
-# 仅单元测试
+# Unit tests only
 uv run pytest tests/unit/ -v
 
-# 仅基准测试（端到端）
+# Benchmarks (end-to-end)
 uv run pytest tests/benchmarks/ -v
 
-# 仅全流程测试
+# Regression tests (128 tests, covering 15 dimensions)
+uv run pytest tests/benchmarks/test_regression.py -v
+
+# Full pipeline tests only
 uv run pytest tests/benchmarks/ -v -k "FullPipeline"
 ```
 
-## 与 ML-Intern 的关系
+## Relationship with ML-Intern
 
-OR-Intern 基于 ML-Intern 的 Agent 基础设施（agent_loop、context_manager、doom_loop 等），但：
-- 移除了所有 HuggingFace 专属代码
-- 替换了 OR 领域工具集（18 个工具）
-- 改写了 system prompt（6 阶段质量门控）
-- 优化了上下文管理（OR 压缩策略）
-
-详见 `OR-Intern完整实施方案.md`。
+OR-Intern is built on ML-Intern's agent infrastructure (agent_loop, context_manager, doom_loop, etc.), but:
+- Removed all HuggingFace-specific code
+- Replaced with OR domain toolset (20 tools)
+- Rewrote system prompt (6-phase quality gate + workspace awareness)
+- Tuned context management (OR compaction strategy, 85% threshold, 10-message tail retention)
+- Restructured configuration (nested YAML + Pydantic nested models)
+- Added session restore/undo functionality
+- Added multi-source paper search (arXiv + Semantic Scholar + OpenAlex)
+- Added session-scoped workspace (session = workspace)

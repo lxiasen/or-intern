@@ -82,10 +82,10 @@ async def interactive_main(config, max_iterations=None):
 
     # Banner
     console.print(BANNER, style="bold green")
-    console.print(f"  [dim]Model: {config.model_name}[/]")
+    console.print(f"  [dim]Model: {config.current_model.name}[/]")
     console.print()
-    console.print("  [dim]输入优化问题并按 Enter 开始[/]")
-    console.print("  [dim]命令: /help, /model, /exit[/]")
+    console.print("  [dim]Enter your optimization problem and press Enter to start[/]")
+    console.print("  [dim]Commands: /help, /model, /exit[/]")
     console.print()
 
     # Create tool router
@@ -135,24 +135,143 @@ async def interactive_main(config, max_iterations=None):
                 if user_input.startswith("/"):
                     cmd = user_input[1:].strip().lower()
                     if cmd in ("exit", "quit", "q"):
-                        console.print("[yellow]再见！[/]")
+                        console.print("[yellow]Goodbye![/]")
                         break
                     elif cmd == "help":
-                        console.print("[bold]可用命令:[/]")
-                        console.print("  /help   - 显示帮助信息")
-                        console.print("  /model  - 显示当前模型")
-                        console.print("  /exit   - 退出程序")
+                        console.print("[bold]Available commands:[/]")
+                        console.print("  /help       - Show this help message")
+                        console.print("  /model      - Show current model")
+                        console.print("  /undo       - Undo last conversation turn")
+                        console.print("  /new        - Start new conversation (keep model/config)")
+                        console.print("  /compact    - Manually compact context")
+                        console.print("  /sessions   - List saved sessions")
+                        console.print("  /resume <path> - Resume session from log file")
+                        console.print("  /exit       - Exit program")
                         console.print()
-                        console.print("[bold]示例问题:[/]")
-                        console.print("  • 最大化 5x + 3y，约束：2x + y <= 20, x + 3y <= 30")
-                        console.print("  • 求解背包问题，容量50，物品重量[10,20,30]，价值[60,100,120]")
-                        console.print("  • 列出所有可用的问题模板")
+                        console.print("[bold]Example problems:[/]")
+                        console.print("  • Maximize 5x + 3y subject to 2x + y <= 20, x + 3y <= 30")
+                        console.print("  • Solve knapsack problem: capacity=50, weights=[10,20,30], values=[60,100,120]")
+                        console.print("  • List all available problem templates")
                         continue
-                    elif cmd == "model":
-                        console.print(f"当前模型: {config.model_name}")
+                    elif cmd.startswith("model"):
+                        parts = cmd.split(maxsplit=1)
+                        if len(parts) >= 2 and parts[1].strip():
+                            try:
+                                idx = int(parts[1].strip()) - 1
+                            except ValueError:
+                                console.print("[red]Usage: /model <number> (e.g. /model 2)[/]")
+                                continue
+                            if idx < 0 or idx >= len(config.models):
+                                console.print(f"[red]Invalid index. Choose 1-{len(config.models)}[/]")
+                                continue
+                            from agent.core.model_switcher import probe_and_switch_model
+                            session = session_holder[0]
+                            await probe_and_switch_model(idx, config, session, console)
+                        else:
+                            current_idx = config.active_model_index
+                            console.print("[bold]Available models:[/]")
+                            for i, m in enumerate(config.models):
+                                label = m.display_name or m.name
+                                marker = " [dim]<-- current[/dim]" if i == current_idx else ""
+                                console.print(f"  [{i+1}] {label} ({m.name}){marker}")
+                            console.print("[dim]Use /model <number> to switch[/dim]")
+                        continue
+                    elif cmd == "undo":
+                        undo_sub = Submission(
+                            id=f"sub_{submission_id[0] + 1}",
+                            operation=Operation(op_type=OpType.UNDO),
+                        )
+                        submission_id[0] += 1
+                        await submission_queue.put(undo_sub)
+                        while True:
+                            event = await event_queue.get()
+                            if event.event_type == "undo_complete":
+                                console.print("[green]Last conversation turn undone[/]")
+                                break
+                            elif event.event_type == "error":
+                                console.print(f"[red]Undo failed: {event.data.get('error', '?')}[/]")
+                                break
+                        continue
+                    elif cmd == "new":
+                        new_sub = Submission(
+                            id=f"sub_{submission_id[0] + 1}",
+                            operation=Operation(op_type=OpType.NEW),
+                        )
+                        submission_id[0] += 1
+                        await submission_queue.put(new_sub)
+                        while True:
+                            event = await event_queue.get()
+                            if event.event_type == "new_complete":
+                                data = event.data or {}
+                                console.print(f"[green]New conversation started (session: {data.get('session_id', '?')[:8]})[/]")
+                                break
+                            elif event.event_type == "error":
+                                console.print(f"[red]Failed to start new conversation: {event.data.get('error', '?')}[/]")
+                                break
+                        continue
+                    elif cmd == "compact":
+                        compact_sub = Submission(
+                            id=f"sub_{submission_id[0] + 1}",
+                            operation=Operation(op_type=OpType.COMPACT),
+                        )
+                        submission_id[0] += 1
+                        await submission_queue.put(compact_sub)
+                        console.print("[green]Context compaction request submitted[/]")
+                        continue
+                    elif cmd == "sessions":
+                        from agent.core.session_resume import list_saved_sessions
+                        sessions = list_saved_sessions(
+                            getattr(config, "session_log_dir", "session_logs")
+                        )
+                        if not sessions:
+                            console.print("[yellow]No saved sessions found[/]")
+                        else:
+                            console.print(f"[bold]Saved sessions ({len(sessions)}):[/]")
+                            for i, s in enumerate(sessions[:20]):
+                                console.print(
+                                    f"  [{i+1}] {s['session_id'][:8]}  "
+                                    f"model={s['model']}  "
+                                    f"msgs={s['message_count']}  "
+                                    f"cost=${s['cost_usd']:.4f}  "
+                                    f"{s['end_time'][:16]}"
+                                )
+                                console.print(f"       path: {s['path']}")
+                            console.print()
+                            console.print("[dim]Use /resume <path> to restore a session[/]")
+                        continue
+                    elif cmd.startswith("resume"):
+                        parts = cmd.split(maxsplit=1)
+                        if len(parts) < 2 or not parts[1].strip():
+                            console.print("[red]Usage: /resume <path> — use /sessions to view available paths[/]")
+                            continue
+                        resume_path = parts[1].strip()
+                        resume_sub = Submission(
+                            id=f"sub_{submission_id[0] + 1}",
+                            operation=Operation(
+                                op_type=OpType.RESUME,
+                                data={"path": resume_path},
+                            ),
+                        )
+                        submission_id[0] += 1
+                        await submission_queue.put(resume_sub)
+                        while True:
+                            event = await event_queue.get()
+                            if event.event_type == "resume_complete":
+                                data = event.data or {}
+                                if data.get("restored"):
+                                    console.print(
+                                        f"[green]Restored {data['message_count']} messages "
+                                        f"(from {data.get('source_session_id', '?')[:8]})[/]"
+                                    )
+                                else:
+                                    console.print(f"[yellow]{data.get('note', 'Restore incomplete')}[/]")
+                                break
+                            elif event.event_type == "error":
+                                console.print(f"[red]Restore failed: {event.data.get('error', '?')}[/]")
+                                break
                         continue
                     else:
-                        console.print(f"[red]未知命令: {cmd}，输入 /help 查看帮助[/]")
+                        console.print(f"[red]Unknown command: {cmd}, type /help for available commands[/]")
                         continue
 
                 # Submit to agent
@@ -216,7 +335,7 @@ async def headless_main(prompt, config, max_iterations=None):
     from agent.core.agent_loop import submission_loop
     from agent.core.tools import ToolRouter, create_builtin_tools
 
-    config.yolo_mode = True
+    config.approval.yolo_mode = True
 
     # Create tool router
     tool_router = ToolRouter()
@@ -304,9 +423,9 @@ Examples:
         config = Config()
 
     if args.model:
-        config.model_name = args.model
+        config.current_model.name = args.model
     if args.yolo:
-        config.yolo_mode = True
+        config.approval.yolo_mode = True
 
     if args.prompt:
         asyncio.run(headless_main(args.prompt, config, args.max_iterations))

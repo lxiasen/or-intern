@@ -103,14 +103,15 @@ def _resolve_llm_params(
     session_hf_token: str | None = None,
     reasoning_effort: str | None = None,
     strict: bool = False,
+    api_key: str | None = None,
+    api_base: str | None = None,
 ) -> dict[str, Any]:
     """Build LiteLLM kwargs for the given model.
 
-    Matches the ML-Intern call signature:
-      _resolve_llm_params(model_name, session.hf_token, reasoning_effort=...)
-
     Returns a dict with: model, api_key, api_base, thinking/reasoning_effort, etc.
     Messages, tools, stream, max_tokens are added separately by the agent loop.
+
+    api_key and api_base from model config take priority over env vars.
     """
     is_anthropic = model_name.startswith("anthropic/")
     is_openai = model_name.startswith("openai/")
@@ -128,16 +129,16 @@ def _resolve_llm_params(
         "model": litellm_model,
     }
 
-    # API key
-    api_key = resolve_api_key(model_name)
-    if api_key:
-        params["api_key"] = api_key
+    # API key: model config > env var fallback
+    resolved_key = api_key or resolve_api_key(model_name)
+    if resolved_key:
+        params["api_key"] = resolved_key
 
-    # Custom API base for OpenAI-compatible endpoints
-    # Check env var OPENAI_API_BASE first, then config
-    custom_base = os.getenv("OPENAI_API_BASE")
-    if custom_base:
-        params["api_base"] = custom_base
+    # API base: model config > env var fallback (except local models)
+    if not is_local:
+        resolved_base = api_base or os.getenv("OPENAI_API_BASE")
+        if resolved_base:
+            params["api_base"] = resolved_base
 
     # Reasoning / thinking effort
     if reasoning_effort:
@@ -155,7 +156,7 @@ def _resolve_llm_params(
     if is_local:
         provider = _get_local_provider(model_name)
         info = _LOCAL_PROVIDERS.get(provider, {})
-        base_url = os.getenv(info.get("env_base_url", ""))
+        base_url = api_base or os.getenv(info.get("env_base_url", ""))
         if not base_url:
             base_url = f"http://localhost:{info.get('default_port', 8000)}/v1"
         params["api_base"] = base_url

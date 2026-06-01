@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from agent.tools._output_dir import get_run_dir
+from agent.tools._output_dir import get_workspace_dir, suggest_filename, record_file
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +220,7 @@ REPORT_GENERATOR_TOOL_SPEC = {
 }
 
 
-async def report_generator_handler(args: dict[str, Any]) -> tuple[str, bool]:
+async def report_generator_handler(args: dict[str, Any], session=None) -> tuple[str, bool]:
     """Handler for report_generator tool."""
     try:
         problem_desc = args.get("problem_description", "Optimization problem")
@@ -232,12 +232,12 @@ async def report_generator_handler(args: dict[str, Any]) -> tuple[str, bool]:
         status = args.get("status", "OPTIMAL")
         chart_paths = args.get("chart_paths", [])
         output_format = args.get("format", "markdown")
+        filename = args.get("filename", "")
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        rundir = get_run_dir()
+        workspace = get_workspace_dir(session)
 
         if output_format == "latex":
-            # Generate LaTeX report
             var_table_latex = _format_var_table_latex(variables)
             sensitivity_section_latex = _format_constraint_table_latex(constraints)
 
@@ -260,8 +260,13 @@ async def report_generator_handler(args: dict[str, Any]) -> tuple[str, bool]:
                 visualization_section_latex=visualization_section_latex,
             )
 
-            report_path = rundir / "report.tex"
+            if filename:
+                report_path = workspace / filename
+            else:
+                report_path = workspace / suggest_filename(workspace, "report", ".tex")
             report_path.write_text(report, encoding="utf-8")
+            record_file(workspace, report_path.name, file_type="report",
+                        tool="report_generator", note=f"LaTeX: {status}")
 
             result = (
                 f"## LaTeX Report Generated\n\n"
@@ -270,7 +275,6 @@ async def report_generator_handler(args: dict[str, Any]) -> tuple[str, bool]:
                 f"To compile: `pdflatex {report_path}`"
             )
         else:
-            # Generate Markdown report
             var_table = _format_var_table(variables)
             constraint_table = _format_constraint_table(constraints)
 
@@ -299,8 +303,13 @@ async def report_generator_handler(args: dict[str, Any]) -> tuple[str, bool]:
                 visualization_section=visualization_section,
             )
 
-            report_path = rundir / "report.md"
+            if filename:
+                report_path = workspace / filename
+            else:
+                report_path = workspace / suggest_filename(workspace, "report", ".md")
             report_path.write_text(report, encoding="utf-8")
+            record_file(workspace, report_path.name, file_type="report",
+                        tool="report_generator", note=f"Markdown: {status}, obj={objective}")
 
             result = (
                 f"## Report Generated\n\n"

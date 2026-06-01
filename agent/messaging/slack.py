@@ -1,21 +1,48 @@
-"""OR-Intern Slack integration stub.
+"""Slack notification provider for OR-Intern.
 
-Simplified from ML-Intern — provides a no-op Slack provider for Phase 0.
+Currently a no-op stub — logs the notification but does not call the
+Slack API.  When Slack integration is needed, replace the body of
+``send`` with an actual ``chat.postMessage`` call via ``client``.
 """
 
+from __future__ import annotations
+
 import logging
-from .base import NotificationProvider, NotificationRequest, NotificationResult
+from typing import TYPE_CHECKING
+
+from agent.messaging.models import NotificationResult
+
+if TYPE_CHECKING:
+    import httpx
+    from agent.config import DestinationConfig
+    from agent.messaging.models import NotificationRequest
 
 logger = logging.getLogger(__name__)
 
 
-class SlackProvider(NotificationProvider):
-    """No-op Slack provider for OR-Intern Phase 0."""
+class SlackProvider:
+    """Slack notification provider.
 
-    def __init__(self, bot_token: str = "", channel_id: str = ""):
-        self.bot_token = bot_token
-        self.channel_id = channel_id
+    Implements the ``NotificationProvider`` protocol defined in
+    ``agent.messaging.base``.
+    """
 
-    async def send(self, request: NotificationRequest) -> NotificationResult:
-        logger.debug("Slack notification suppressed (no-op stub)")
-        return NotificationResult(success=True)
+    provider_name: str = "slack"
+
+    async def send(
+        self,
+        client: httpx.AsyncClient,
+        destination_name: str,
+        destination: DestinationConfig,
+        request: NotificationRequest,
+    ) -> NotificationResult:
+        logger.debug(
+            "Slack notification suppressed (no-op): dest=%s title=%s",
+            destination_name,
+            request.title,
+        )
+        return NotificationResult(
+            destination=destination_name,
+            ok=True,
+            provider=self.provider_name,
+        )

@@ -4,13 +4,13 @@ from collections.abc import Iterable
 
 import httpx
 
+from agent.config import MessagingConfig
 from agent.messaging.base import (
     NotificationError,
     NotificationProvider,
     RetryableNotificationError,
 )
 from agent.messaging.models import (
-    MessagingConfig,
     NotificationRequest,
     NotificationResult,
 )

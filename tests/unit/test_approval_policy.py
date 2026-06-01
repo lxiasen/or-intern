@@ -10,7 +10,7 @@ class TestSolverApproval:
     @pytest.fixture
     def config(self):
         c = Config()
-        c.yolo_mode = False
+        c.approval.yolo_mode = False
         return c
 
     def test_higs_auto_approved(self, config):

@@ -114,6 +114,8 @@ async def summarize_messages(
     prompt: str = _COMPACT_PROMPT,
     session: Any = None,
     kind: str = "compaction",
+    api_key: str | None = None,
+    api_base: str | None = None,
 ) -> tuple[str, int]:
     """Run a summarization prompt against a list of messages.
 
@@ -134,7 +136,10 @@ async def summarize_messages(
     from agent.core.llm_params import _resolve_llm_params
 
     prompt_messages = list(messages) + [Message(role="user", content=prompt)]
-    llm_params = _resolve_llm_params(model_name, messages=prompt_messages, reasoning_effort="high")
+    llm_params = _resolve_llm_params(
+        model_name, messages=prompt_messages, reasoning_effort="high",
+        api_key=api_key, api_base=api_base,
+    )
     prompt_messages, tool_specs = with_prompt_caching(
         prompt_messages, tool_specs, llm_params.get("model")
     )
@@ -330,9 +335,42 @@ class ContextManager:
         Patches any dangling tool_calls (assistant messages with tool_calls
         that have no matching tool-result message) so the LLM API doesn't
         reject the request.
+
+        Also dynamically injects workspace file listing into the system
+        message so the LLM always knows what files exist in the workspace.
         """
         self._patch_dangling_tool_calls()
+        self._inject_workspace_context()
         return self.items
+
+    def _inject_workspace_context(self) -> None:
+        """Update the system message with current workspace file listing."""
+        workspace_dir = getattr(self, "workspace_dir", None)
+        if workspace_dir is None:
+            return
+
+        try:
+            from agent.tools._output_dir import list_workspace_files
+            workspace_info = list_workspace_files(workspace_dir)
+        except Exception:
+            return
+
+        if not workspace_info:
+            return
+
+        if not self.items or getattr(self.items[0], "role", None) != "system":
+            return
+
+        original = self.items[0].content or ""
+        marker = "\n\n[Workspace Files]\n"
+
+        if marker in original:
+            base = original.split(marker)[0]
+        else:
+            base = original
+
+        updated = f"{base}{marker}{workspace_info}"
+        self.items[0] = Message(role="system", content=updated)
 
     @staticmethod
     def _normalize_tool_calls(msg: Message) -> None:
@@ -541,6 +579,8 @@ class ContextManager:
         tool_specs: list[dict] | None = None,
         hf_token: str | None = None,
         session: Any = None,
+        api_key: str | None = None,
+        api_base: str | None = None,
     ) -> None:
         """Remove old messages to keep history under target size.
 
@@ -627,6 +667,8 @@ class ContextManager:
             prompt=getattr(self, "compact_prompt", _COMPACT_PROMPT),
             session=session,
             kind="compaction",
+            api_key=api_key,
+            api_base=api_base,
         )
         summarized_message = Message(
             role="assistant",

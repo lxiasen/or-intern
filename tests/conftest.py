@@ -5,11 +5,28 @@ import tempfile
 from pathlib import Path
 
 
+class FakeSession:
+    """Fake session for testing that mimics real session behavior."""
+    
+    def __init__(self, session_id="test-session-1234", solver_default="highs"):
+        self.session_id = session_id
+        self.config = type('Config', (), {
+            'solver': type('Solver', (), {'default': solver_default})(),
+            'current_model': type('Model', (), {'name': 'test-model'})(),
+        })()
+
+
 @pytest.fixture
 def temp_dir():
     """Create a temporary directory for test outputs."""
     with tempfile.TemporaryDirectory(prefix="or_intern_test_") as d:
         yield Path(d)
+
+
+@pytest.fixture
+def session():
+    """Create a fake session for testing."""
+    return FakeSession()
 
 
 @pytest.fixture

@@ -104,9 +104,9 @@ class TestStochasticBuilder:
         assert "Objective" in code
 
     @pytest.mark.asyncio
-    async def test_handler_empty_description(self):
+    async def test_handler_empty_description(self, session):
         from agent.tools.stochastic_builder import stochastic_builder_handler
-        output, is_error = await stochastic_builder_handler({"description": ""})
+        output, is_error = await stochastic_builder_handler({"description": ""}, session=session)
         assert is_error
 
 

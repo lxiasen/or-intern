@@ -121,37 +121,37 @@ class TestModelBuilderHandler:
     """Test the async handler."""
 
     @pytest.mark.asyncio
-    async def test_returns_analysis(self):
+    async def test_returns_analysis(self, session):
         from agent.tools.model_builder import model_builder_handler
         output, is_error = await model_builder_handler({
             "description": "maximize 3x + 2y subject to x + y <= 10"
-        })
+        }, session=session)
         assert not is_error
         assert "Model Generated" in output
         assert "maximize" in output.lower()
 
     @pytest.mark.asyncio
-    async def test_empty_description(self):
+    async def test_empty_description(self, session):
         from agent.tools.model_builder import model_builder_handler
-        output, is_error = await model_builder_handler({"description": ""})
+        output, is_error = await model_builder_handler({"description": ""}, session=session)
         assert is_error
 
     @pytest.mark.asyncio
-    async def test_model_file_created(self):
+    async def test_model_file_created(self, session):
         from agent.tools.model_builder import model_builder_handler
         output, is_error = await model_builder_handler({
             "description": "maximize x + y subject to x <= 5, y <= 3"
-        })
+        }, session=session)
         assert not is_error
         m = re.search(r'Model file\*\*: (.+)', output)
         assert m is not None
         assert Path(m.group(1)).exists()
 
     @pytest.mark.asyncio
-    async def test_mip_model_with_binary(self):
+    async def test_mip_model_with_binary(self, session):
         from agent.tools.model_builder import model_builder_handler
         output, is_error = await model_builder_handler({
             "description": "maximize x + y subject to x + y <= 10, x binary, y binary"
-        })
+        }, session=session)
         assert not is_error
         assert "MIP" in output

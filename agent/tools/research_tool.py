@@ -131,10 +131,12 @@ async def research_handler(
     messages.append(Message(role="user", content=user_content))
 
     # Use same model for research
-    research_model = _get_research_model(session.config.model_name)
+    research_model = _get_research_model(session.config.current_model.name)
     llm_params = _resolve_llm_params(
         research_model,
         getattr(session, "hf_token", None),
+        api_key=session.config.current_model.api_key,
+        api_base=session.config.current_model.api_base,
     )
 
     # Filter to read-only tools

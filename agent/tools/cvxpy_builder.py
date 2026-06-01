@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agent.tools._output_dir import get_run_dir
+from agent.tools._output_dir import get_workspace_dir, suggest_filename, record_file
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +211,8 @@ CVXPY_BUILDER_TOOL_SPEC = {
         "Generate cvxpy code for convex optimization problems. "
         "Supports: linear programming, quadratic programming, SOCP, SDP, "
         "and general convex problems with automatic DCP compliance checking. "
-        "Input: natural language description. Output: cvxpy code file path."
+        "Input: natural language description. Output: cvxpy code file path.\n"
+        "Use `filename` to choose a descriptive name. If omitted, auto-versioned."
     ),
     "parameters": {
         "type": "object",
@@ -228,16 +229,21 @@ CVXPY_BUILDER_TOOL_SPEC = {
                 "description": "Solver to use: ECOS, SCS, OSQP, MOSEK (default: ECOS)",
                 "default": "ECOS",
             },
+            "filename": {
+                "type": "string",
+                "description": "Output filename (e.g., 'model_convex.py'). Auto-versioned if omitted.",
+            },
         },
         "required": ["description"],
     },
 }
 
 
-async def cvxpy_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
+async def cvxpy_builder_handler(args: dict[str, Any], session=None) -> tuple[str, bool]:
     """Handler for cvxpy_builder tool."""
     description = args.get("description", "")
     solver = args.get("solver", "ECOS")
+    filename = args.get("filename", "")
 
     if not description:
         return "Error: No problem description provided", True
@@ -245,9 +251,14 @@ async def cvxpy_builder_handler(args: dict[str, Any]) -> tuple[str, bool]:
     try:
         code = generate_cvxpy_code(description, solver)
 
-        rundir = get_run_dir()
-        model_file = rundir / "model_cvxpy.py"
+        workspace = get_workspace_dir(session)
+        if filename:
+            model_file = workspace / filename
+        else:
+            model_file = workspace / suggest_filename(workspace, "model_cvxpy", ".py")
         model_file.write_text(code, encoding="utf-8")
+        record_file(workspace, model_file.name, file_type="cvxpy_model",
+                     tool="cvxpy_builder", note=description[:60])
 
         direction = _detect_direction(description)
         variables = _extract_variables(description)

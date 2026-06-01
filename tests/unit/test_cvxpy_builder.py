@@ -112,7 +112,7 @@ class TestCvxpyBuilderHandler:
     @pytest.mark.asyncio
     async def test_generates_model(self, temp_dir, monkeypatch):
         import agent.tools.cvxpy_builder as cb
-        monkeypatch.setattr(cb, "get_run_dir", lambda: temp_dir)
+        monkeypatch.setattr(cb, "get_workspace_dir", lambda session=None: temp_dir)
         output, is_error = await cb.cvxpy_builder_handler({
             "description": "minimize x + y subject to x + y >= 1",
         })
@@ -122,13 +122,13 @@ class TestCvxpyBuilderHandler:
     @pytest.mark.asyncio
     async def test_model_file_created(self, temp_dir, monkeypatch):
         import agent.tools.cvxpy_builder as cb
-        monkeypatch.setattr(cb, "get_run_dir", lambda: temp_dir)
+        monkeypatch.setattr(cb, "get_workspace_dir", lambda session=None: temp_dir)
         output, is_error = await cb.cvxpy_builder_handler({
             "description": "minimize x + y",
         })
         assert not is_error
-        model_path = temp_dir / "model_cvxpy.py"
-        assert model_path.exists()
+        py_files = list(temp_dir.glob("*.py"))
+        assert len(py_files) >= 1
 
 
 class TestProblemTypeDetection:

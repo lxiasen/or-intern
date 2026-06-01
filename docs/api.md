@@ -1,83 +1,163 @@
-# OR-Intern API 文档
+# OR-Intern API Documentation
 
-所有工具均为异步函数，返回 `(output: str, is_error: bool)` 元组。
+All tools are async functions returning `(output: str, is_error: bool)` tuples.
 
-## 目录
+Tool output files are written to the session workspace `outputs/<session_id[:8]>/` and persist across conversation turns.
 
-- [OR 核心工具](#or-核心工具)
-  - [model_builder](#model_builder) — 数学建模
-  - [solver_selector](#solver_selector) — 求解器推荐
-  - [solve_job](#solve_job) — 求解执行
-  - [validate_solution](#validate_solution) — 解验证
-  - [sensitivity_analysis](#sensitivity_analysis) — 灵敏度分析
-  - [visualization](#visualization) — 可视化
-  - [compare_solvers](#compare_solvers) — 求解器对比
-  - [report_generator](#report_generator) — 报告生成
-  - [or_papers](#or_papers) — 论文搜索
-  - [data_handler](#data_handler) — 数据加载
-  - [research](#research) — 子 Agent 研究
-- [基础设施工具](#基础设施工具)
-  - [plan_tool](#plan_tool) — 任务计划
-  - [bash](#bash) — 命令执行
-  - [read](#read) — 文件读取
-  - [write](#write) — 文件写入
-  - [edit](#edit) — 文件编辑
+## Table of Contents
+
+- [Core OR Tools](#core-or-tools)
+  - [model_builder](#model_builder) — Pyomo mathematical modeling
+  - [cvxpy_builder](#cvxpy_builder) — Convex optimization modeling (cvxpy)
+  - [robust_builder](#robust_builder) — Robust optimization modeling
+  - [stochastic_builder](#stochastic_builder) — Stochastic programming modeling
+  - [problem_templates](#problem_templates) — Standard OR problem templates
+  - [model_checker](#model_checker) — Model validation
+  - [solver_selector](#solver_selector) — Solver recommendation
+  - [solve_job](#solve_job) — Solve execution
+  - [validate_solution](#validate_solution) — Solution validation
+  - [sensitivity_analysis](#sensitivity_analysis) — Sensitivity analysis
+  - [visualization](#visualization) — Visualization
+  - [compare_solvers](#compare_solvers) — Solver comparison
+  - [report_generator](#report_generator) — Report generation
+  - [or_papers](#or_papers) — Multi-source paper search
+  - [data_handler](#data_handler) — Data loading
+  - [research](#research) — Sub-agent research
+- [Infrastructure Tools](#infrastructure-tools)
+  - [plan_tool](#plan_tool) — Task planning
+  - [notify](#notify) — External notifications
+  - [bash / read / write / edit](#bash--read--write--edit) — File system operations
 
 ---
 
-## OR 核心工具
+## Core OR Tools
 
 ### model_builder
 
-从自然语言描述生成 Pyomo 数学模型。
+Generate Pyomo mathematical models from natural language descriptions. Supports LP, MIP, binary, integer, SOS, indicator constraints, piecewise functions.
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `description` | string | ✅ | 问题描述，如 "maximize 3x+2y s.t. x+y<=10" |
-| `solver` | string | | 求解器名称（默认: highs） |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `description` | string | ✅ | Problem description, e.g., "maximize 3x+2y s.t. x+y<=10" |
+| `solver` | string | | Solver name (default: highs) |
+| `filename` | string | | Output filename (e.g., "model_v1.py"). Auto-versioned if omitted |
 
-**返回**: 模型文件路径、问题类型、变量、约束数量
+**Returns**: Model file path, problem type, variables, constraint count
 
-**示例**:
+**Example**:
 ```
 description: "maximize 3x + 2y subject to x + y <= 10, x >= 0, y >= 0"
-→ Model file: outputs/run_*/model.py
+filename: "model_production.py"
+→ Model file: outputs/a3f7b2c1/model_production.py
 ```
+
+---
+
+### cvxpy_builder
+
+Generate cvxpy convex optimization model code. Supports LP, QP, SOCP, SDP with automatic DCP compliance checking.
+
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `description` | string | ✅ | Problem description |
+| `solver` | string | | Solver: ECOS, SCS, OSQP, MOSEK (default: ECOS) |
+| `filename` | string | | Output filename. Auto-versioned if omitted |
+
+---
+
+### robust_builder
+
+Generate robust optimization models. Supports box and ellipsoidal uncertainty sets.
+
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `description` | string | ✅ | Problem description (with uncertainty parameters) |
+| `uncertainty_set` | string | | "box" or "ellipsoidal" (default: box) |
+| `gamma` | number | | Uncertainty budget (default: 1.0) |
+| `solver` | string | | Solver (default: highs) |
+| `filename` | string | | Output filename |
+
+---
+
+### stochastic_builder
+
+Generate two-stage stochastic programming models (SAA).
+
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `description` | string | ✅ | Problem description (with uncertainty parameters) |
+| `n_scenarios` | integer | | Number of scenarios (default: 100) |
+| `solver` | string | | Solver (default: highs) |
+| `filename` | string | | Output filename |
+
+---
+
+### problem_templates
+
+List/match/generate from 15 standard OR problem templates.
+
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `operation` | string | | "list", "match", "generate" (default: list) |
+| `template_name` | string | | Template name (required for generate), e.g., tsp, knapsack, transportation |
+| `description` | string | | Problem description (required for match) |
+| `params` | object | | Template parameters |
+| `solver` | string | | Solver (default: highs) |
+| `filename` | string | | Output filename |
+
+---
+
+### model_checker
+
+Validate Pyomo model files for syntax, imports, variables, objective function, constraints, solver compatibility.
+
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `model_path` | string | ✅ | Model file path |
+| `run_import_test` | boolean | | Whether to run import test (default: true) |
+
+**Returns**: Validation results (error/warning list)
 
 ---
 
 ### solver_selector
 
-根据问题类型推荐最佳求解器。
+Recommend the best solver based on problem type.
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `description` | string | ✅ | 问题描述 |
-| `prefer_open_source` | boolean | | 是否优先开源（默认: true） |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `description` | string | ✅ | Problem description |
+| `prefer_open_source` | boolean | | Prefer open-source solvers (default: true) |
 
-**返回**: 推荐求解器、类型（开源/商用）、理由、Pyomo 用法
+**Returns**: Recommended solver, type (open-source/commercial), rationale, Pyomo usage
 
 ---
 
 ### solve_job
 
-执行优化求解。
+Execute optimization solve with real-time progress monitoring (gap, bound, nodes).
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `operation` | string | | "run"（执行）或 "status"（检查可用求解器） |
-| `model_path` | string | ✅(run) | Pyomo 模型文件路径 |
-| `solver` | string | | 求解器（默认: highs） |
-| `timeout` | integer | | 超时秒数（默认: 300） |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `operation` | string | | "run" (execute) or "status" (check available solvers) |
+| `model_path` | string | ✅(run) | Pyomo model file path |
+| `solver` | string | | Solver (default: highs) |
+| `timeout` | integer | | Timeout in seconds (default: 300) |
+| `stream_progress` | boolean | | Real-time progress reporting (default: true) |
 
-**返回**: Status、Objective、Gap、Lower/Upper Bound、Solver Time、变量值
+**Returns**: Status, Objective, Gap, Lower/Upper Bound, Solver Time, variable values
 
-**示例**:
+**Example**:
 ```
-model_path: "outputs/run_20260527/model.py"
+model_path: "outputs/a3f7b2c1/model.py"
 solver: "highs"
 → ## Solve Results
   Status: OPTIMAL
@@ -90,140 +170,166 @@ solver: "highs"
 
 ### validate_solution
 
-验证解的可行性。
+Validate solution feasibility.
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `model_path` | string | ✅ | 模型文件路径 |
-| `solution` | object | | 解的变量值，如 {"x": 10, "y": 0} |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `model_path` | string | ✅ | Model file path |
+| `solution` | object | | Solution variable values, e.g., {"x": 10, "y": 0} |
 
-**返回**: FEASIBLE/INFEASIBLE、违反数、紧约束列表
+**Returns**: FEASIBLE/INFEASIBLE, violation count, binding constraints list
 
 ---
 
 ### sensitivity_analysis
 
-灵敏度分析：影子价格、reduced costs、参数分析。
+Sensitivity analysis: shadow prices, reduced costs, parametric analysis.
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `model_path` | string | ✅ | 模型文件路径 |
-| `solver` | string | | 求解器（默认: highs） |
-| `operation` | string | | "dual"、"parametric"、"full"（默认: full） |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `model_path` | string | ✅ | Model file path |
+| `solver` | string | | Solver (default: highs) |
+| `operation` | string | | "dual", "parametric", "full" (default: full) |
 
-**返回**: 影子价格表、reduced costs 表、参数分析结果
+**Returns**: Shadow prices table, reduced costs table, parametric analysis results
 
 ---
 
 ### visualization
 
-生成可视化图表。
+Generate visualization charts (PNG).
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `chart_type` | string | | "variables"、"sensitivity"、"all"（默认: all） |
-| `variables` | object | ✅ | 变量值，如 {"x": 10, "y": 0} |
-| `objective` | number | | 目标函数值 |
-| `param_data` | array | | 灵敏度数据 |
-| `gap_data` | array | | 求解进度数据 |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `chart_type` | string | | "variables", "sensitivity", "heatmap", "pareto", "all" |
+| `variables` | object | | Variable values, e.g., {"x": 10, "y": 0} |
+| `objective` | number | | Objective function value |
+| `param_data` | array | | Sensitivity data |
+| `gap_data` | array | | Solve progress data |
+| `constraints` | object | | Constraint slack values |
+| `pareto_data` | array | | Pareto front data |
+| `filename_prefix` | string | | Filename prefix (e.g., "iteration2"). Auto-versioned if omitted |
 
-**返回**: 图表文件路径（PNG）
+**Returns**: Chart file paths (PNG)
 
 ---
 
 ### compare_solvers
 
-多求解器性能对比。
+Multi-solver performance comparison.
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `model_path` | string | ✅ | 模型文件路径 |
-| `solvers` | string | | 逗号分隔的求解器列表（默认: highs,scip,glpk） |
-| `timeout` | integer | | 每个求解器超时（默认: 60） |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `model_path` | string | ✅ | Model file path |
+| `solvers` | string | | Comma-separated solver list (default: highs,scip,glpk) |
+| `timeout` | integer | | Timeout per solver (default: 60) |
 
-**返回**: 对比表（求解器、状态、时间、目标值）
+**Returns**: Comparison table (solver, status, time, objective value)
 
 ---
 
 ### report_generator
 
-生成 Markdown 综合报告。
+Generate comprehensive reports (Markdown or LaTeX).
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `problem_description` | string | | 问题描述 |
-| `objective` | number | | 目标值 |
-| `variables` | object | | 变量值 |
-| `constraints` | object | | 约束影子价格 |
-| `solver` | string | | 求解器名称 |
-| `status` | string | | 求解状态 |
-| `chart_paths` | array | | 图表路径列表 |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `problem_description` | string | | Problem description |
+| `objective` | number | | Objective value |
+| `variables` | object | | Variable values |
+| `constraints` | object | | Constraint shadow prices |
+| `solver` | string | | Solver name |
+| `status` | string | | Solve status |
+| `chart_paths` | array | | Chart path list |
+| `format` | string | | "markdown" or "latex" (default: markdown) |
+| `filename` | string | | Output filename. Auto-versioned if omitted |
 
-**返回**: 报告文件路径（Markdown）
+**Returns**: Report file path
 
 ---
 
 ### or_papers
 
-搜索 arXiv OR 论文。
+Multi-source OR paper search and analysis. Supports arXiv, Semantic Scholar, and OpenAlex data sources.
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `query` | string | ✅ | 搜索关键词 |
-| `max_results` | integer | | 最大结果数（默认: 5） |
-| `source` | string | | "arxiv"、"web"、"both"（默认: arxiv） |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `operation` | string | | "search" (search), "detail" (details), "cite" (citation analysis) |
+| `query` | string | ✅(search) | Search keywords |
+| `paper_id` | string | | Paper ID (for detail/cite, supports arXiv ID, DOI, S2 ID) |
+| `max_results` | integer | | Maximum results (default: 5) |
+| `source` | string | | "arxiv", "semantic_scholar", "openalex", "all" (default: all) |
 
-**返回**: 论文列表（标题、作者、摘要、链接）
+**Returns**:
+- search: Paper list (title, authors, abstract, citation count, links)
+- detail: Full metadata + abstract
+- cite: Citation analysis (who cited this / what this cited)
 
 ---
 
 ### data_handler
 
-加载 CSV/JSON 数据并转换为 Pyomo 格式。
+Load CSV/JSON data and convert to Pyomo format.
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `operation` | string | | "load"（加载）或 "inspect"（检查结构） |
-| `file_path` | string | ✅ | 数据文件路径 |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `operation` | string | | "load" (load) or "inspect" (inspect structure) |
+| `file_path` | string | ✅ | Data file path |
 
-**返回**: 数据结构描述或 Pyomo 兼容代码
+**Returns**: Data structure description or Pyomo-compatible code
 
 ---
 
 ### research
 
-子 Agent 深度研究。
+Sub-agent deep research.
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `query` | string | ✅ | 研究问题 |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `query` | string | ✅ | Research question |
 
-**返回**: 研究结果摘要
+**Returns**: Research results summary
 
 ---
 
-## 基础设施工具
+## Infrastructure Tools
 
 ### plan_tool
 
-任务计划追踪。
+Task planning and tracking.
 
-**参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|:--:|------|
-| `action` | string | | "create"、"update"、"list" |
-| `todos` | array | | 任务列表 |
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `action` | string | | "create", "update", "list" |
+| `todos` | array | | Task list |
+
+---
+
+### notify
+
+Send out-of-band notifications to configured channels.
+
+**Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|:--:|-------------|
+| `destinations` | array | ✅ | Target channel name list |
+| `message` | string | ✅ | Notification content |
+| `title` | string | | Title |
+| `severity` | string | | "info", "success", "warning", "error" |
+
+**Returns**: Send results per channel
 
 ---
 
 ### bash / read / write / edit
 
-文件系统操作，参数与标准 shell 工具一致。
+File system operations, parameters consistent with standard shell tools.

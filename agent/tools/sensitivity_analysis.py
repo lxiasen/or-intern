@@ -124,10 +124,10 @@ SENSITIVITY_ANALYSIS_TOOL_SPEC = {
 }
 
 
-async def sensitivity_analysis_handler(args: dict[str, Any]) -> tuple[str, bool]:
+async def sensitivity_analysis_handler(args: dict[str, Any], session=None) -> tuple[str, bool]:
     """Handler for sensitivity_analysis tool."""
     model_path = args.get("model_path", "")
-    solver_name = args.get("solver", "highs")
+    solver_name = args.get("solver") or (session.config.solver.default)
     operation = args.get("operation", "full")
 
     if not model_path:

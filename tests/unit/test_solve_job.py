@@ -7,31 +7,31 @@ class TestSolveJob:
     """Test solve_job handler with a real model file."""
 
     @pytest.mark.asyncio
-    async def test_solve_simple_lp(self, model_file):
+    async def test_solve_simple_lp(self, model_file, session):
         from agent.tools.solve_job import solve_job_handler
         output, is_error = await solve_job_handler({
             "operation": "run",
             "model_path": model_file,
             "solver": "highs",
             "timeout": 30,
-        })
+        }, session=session)
         assert not is_error
         assert "OPTIMAL" in output
         assert "30.0" in output
 
     @pytest.mark.asyncio
-    async def test_solve_missing_file(self):
+    async def test_solve_missing_file(self, session):
         from agent.tools.solve_job import solve_job_handler
         output, is_error = await solve_job_handler({
             "operation": "run",
             "model_path": "/nonexistent/model.py",
-        })
+        }, session=session)
         assert is_error
 
     @pytest.mark.asyncio
-    async def test_status_operation(self):
+    async def test_status_operation(self, session):
         from agent.tools.solve_job import solve_job_handler
-        output, is_error = await solve_job_handler({"operation": "status"})
+        output, is_error = await solve_job_handler({"operation": "status"}, session=session)
         assert not is_error
         assert "highs" in output.lower()
 
