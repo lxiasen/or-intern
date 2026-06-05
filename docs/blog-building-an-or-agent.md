@@ -124,6 +124,86 @@ OR problems generate structured output — model code, solver logs, sensitivity 
 - **Larger tail retention (10 messages)**: Recent tool outputs are critical for the LLM's reasoning
 - **Solve log summarization**: Compresses verbose solver output into structured summaries (status, gap, time, key variables)
 
+## Real-World Example: Semiconductor Material Shortage Prediction
+
+Let's demonstrate OR-Intern's capabilities with a real-world case.
+
+### Problem Description
+
+A semiconductor manufacturer needs to analyze material shortage risks for the next 8 weeks, based on:
+- Current inventory, safety stock, and lead times for 10 materials
+- Production plans for 3 products
+- Bill of Materials (BOM)
+
+### Usage
+
+```bash
+# Prepare data files (CSV format)
+# test_data/materials.csv - Material master data
+# test_data/production_plan.csv - Production plan
+# test_data/bom.csv - Bill of Materials
+
+uv run or-intern "Analyze material shortage risk for semiconductor manufacturing. Data files are in test_data/ directory"
+```
+
+### System Execution Flow
+
+```
+Phase 1: Model
+├── Read CSV data (materials, BOM, production plan)
+├── Generate MRP optimization model (Pyomo)
+└── Validate model with model_checker
+
+Phase 2: Solve
+├── Use HiGHS solver
+├── Identify shortage risks (which materials, when, how much)
+└── Quality gate: OPTIMAL, gap≈0
+
+Phase 3: Validate
+└── Verify all constraints satisfied
+
+Phase 4: Analyze
+└── Sensitivity analysis: identify bottleneck materials
+
+Phase 5: Visualize
+├── Inventory trend charts (multi-subplot, one per material)
+├── Shortage risk heatmap
+├── Reorder suggestions chart
+└── Supplier cost distribution pie chart
+
+Phase 6: Report
+└── Generate complete analysis report (Markdown)
+```
+
+### Output Results
+
+**Analysis Summary:**
+| Priority | Material | Reorder Qty | Latest Order | Cost |
+|:--------:|:---------|:-----------:|:------------:|:----:|
+| Urgent | Silicon Wafer | 6,660 | Week 1 | $169,830 |
+| Urgent | Metal Target | 618 | Week 1 | $27,810 |
+| Important | Etching Gas | 2,756 | Week 2 | $23,426 |
+
+**Output Files:**
+```
+outputs/2026-06-04_xxxxxxxx/
+├── report.md                    # Complete analysis report
+├── material_shortage_model.py   # MRP optimization model
+├── shortage_analysis_result.json # Analysis result data
+├── inventory_trend.png          # Inventory trend chart
+├── shortage_heatmap.png         # Shortage risk heatmap
+├── reorder_suggestions.png      # Reorder suggestions chart
+└── supplier_pie.png             # Supplier cost distribution
+```
+
+### Key Capabilities Demonstrated
+
+1. **Data Processing**: Automatically reads CSV files, understands relationships between materials, BOM, and production plans
+2. **Model Building**: Generates MRP optimization model (not simple LP/MIP)
+3. **Error Recovery**: Automatically switches to hand-written code when model_builder fails
+4. **Complete Workflow**: Automatically completes all 6 phases without manual intervention
+5. **Professional Output**: Generates professional analysis reports and visualizations
+
 ## Try It
 
 ```bash
@@ -131,10 +211,15 @@ git clone https://github.com/or-intern/or-intern.git
 cd or-intern
 uv sync
 cp .env.example .env  # add your API key
+
+# Simple problem
 uv run or-intern "Maximize 5x + 3y subject to 2x + y <= 20, x + 3y <= 30"
+
+# Real-world business scenario
+uv run or-intern "Analyze material shortage risk for semiconductor manufacturing. Data files are in test_data/ directory"
 ```
 
-The agent will walk you through: model generation → solver selection → solution validation → sensitivity analysis → visualization → report.
+The agent will walk you through: data loading → model generation → solving → validation → visualization → report.
 
 ---
 

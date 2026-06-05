@@ -15,12 +15,27 @@ Operations:
 import json
 import logging
 import re
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # seconds
+
+# arXiv OR-related categories
+_ARXIV_OR_CATEGORIES = [
+    "math.OC",  # Optimization and Control
+    "cs.AI",    # Artificial Intelligence
+    "cs.DS",    # Data Structures and Algorithms
+    "math.PR",  # Probability
+    "stat.ML",  # Machine Learning
+    "econ.GN",  # General Economics
+]
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -46,83 +61,108 @@ def _arxiv_id_from_url(url: str) -> str:
     return m.group(1) if m else url
 
 
-def _fetch_arxiv(query: str, max_results: int = 5) -> list[dict]:
-    """Fetch papers from arXiv API with full metadata."""
-    try:
-        encoded = urllib.parse.quote(query)
-        url = (
-            f"{_ARXIV_API}?search_query=all:{encoded}"
-            f"&start=0&max_results={max_results}&sortBy=relevance"
-        )
-        req = urllib.request.Request(url, headers={"User-Agent": "OR-Intern/0.5"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = resp.read().decode("utf-8")
+def _fetch_arxiv(query: str, max_results: int = 5, filter_or: bool = True) -> list[dict]:
+    """Fetch papers from arXiv API with full metadata.
 
-        ns = {
-            "atom": "http://www.w3.org/2005/Atom",
-            "arxiv": "http://arxiv.org/schemas/atom",
-        }
-        root = ET.fromstring(data)
+    Args:
+        query: Search query
+        max_results: Maximum number of results
+        filter_or: If True, prioritize OR-related categories (math.OC, etc.)
+    """
+    for attempt in range(MAX_RETRIES):
+        try:
+            # Build search query with category filter if requested
+            if filter_or:
+                # Add OR category filter to improve relevance
+                cat_filter = " OR ".join([f"cat:{cat}" for cat in _ARXIV_OR_CATEGORIES[:3]])
+                search_query = f"({query}) AND ({cat_filter})"
+            else:
+                search_query = query
 
-        papers = []
-        for entry in root.findall("atom:entry", ns):
-            title_el = entry.find("atom:title", ns)
-            summary_el = entry.find("atom:summary", ns)
-            link_el = entry.find("atom:id", ns)
-            published_el = entry.find("atom:published", ns)
-            updated_el = entry.find("atom:updated", ns)
-
-            authors = []
-            for author in entry.findall("atom:author", ns):
-                name = author.find("atom:name", ns)
-                if name is not None and name.text:
-                    authors.append(name.text.strip())
-
-            categories = []
-            for cat in entry.findall("atom:category", ns):
-                term = cat.get("term")
-                if term:
-                    categories.append(term)
-
-            doi_el = entry.find("arxiv:doi", ns)
-            comment_el = entry.find("arxiv:comment", ns)
-            journal_el = entry.find("arxiv:journal_ref", ns)
-
-            arxiv_id = _arxiv_id_from_url(
-                link_el.text.strip() if link_el is not None else ""
+            encoded = urllib.parse.quote(search_query)
+            url = (
+                f"{_ARXIV_API}?search_query=all:{encoded}"
+                f"&start=0&max_results={max_results * 2}&sortBy=relevance"
             )
+            req = urllib.request.Request(url, headers={"User-Agent": "OR-Intern/0.5"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = resp.read().decode("utf-8", errors="replace")
 
-            pdf_link = f"https://arxiv.org/pdf/{arxiv_id}"
+            ns = {
+                "atom": "http://www.w3.org/2005/Atom",
+                "arxiv": "http://arxiv.org/schemas/atom",
+            }
+            root = ET.fromstring(data)
 
-            papers.append({
-                "title": (title_el.text or "Unknown").strip().replace("\n", " ")
-                         if title_el is not None else "Unknown",
-                "authors": authors,
-                "authors_str": ", ".join(authors[:5])
-                               + ("..." if len(authors) > 5 else ""),
-                "summary": (summary_el.text or "").strip().replace("\n", " ")
-                           if summary_el is not None else "",
-                "url": f"https://arxiv.org/abs/{arxiv_id}",
-                "pdf_url": pdf_link,
-                "arxiv_id": arxiv_id,
-                "published": (published_el.text or "")[:10]
-                             if published_el is not None else "",
-                "updated": (updated_el.text or "")[:10]
-                           if updated_el is not None else "",
-                "categories": categories,
-                "doi": (doi_el.text or "").strip() if doi_el is not None else "",
-                "comment": (comment_el.text or "").strip().replace("\n", " ")
-                           if comment_el is not None else "",
-                "journal_ref": (journal_el.text or "").strip()
-                               if journal_el is not None else "",
-                "source": "arxiv",
-            })
+            papers = []
+            for entry in root.findall("atom:entry", ns):
+                title_el = entry.find("atom:title", ns)
+                summary_el = entry.find("atom:summary", ns)
+                link_el = entry.find("atom:id", ns)
+                published_el = entry.find("atom:published", ns)
+                updated_el = entry.find("atom:updated", ns)
 
-        return papers
+                authors = []
+                for author in entry.findall("atom:author", ns):
+                    name = author.find("atom:name", ns)
+                    if name is not None and name.text:
+                        authors.append(name.text.strip())
 
-    except Exception as e:
-        logger.warning("arXiv fetch failed: %s", e)
-        return []
+                categories = []
+                for cat in entry.findall("atom:category", ns):
+                    term = cat.get("term")
+                    if term:
+                        categories.append(term)
+
+                # Skip papers with no OR-related categories if filtering
+                if filter_or and categories:
+                    has_or_cat = any(cat in _ARXIV_OR_CATEGORIES for cat in categories)
+                    if not has_or_cat:
+                        continue
+
+                doi_el = entry.find("arxiv:doi", ns)
+                comment_el = entry.find("arxiv:comment", ns)
+                journal_el = entry.find("arxiv:journal_ref", ns)
+
+                arxiv_id = _arxiv_id_from_url(
+                    link_el.text.strip() if link_el is not None else ""
+                )
+
+                pdf_link = f"https://arxiv.org/pdf/{arxiv_id}"
+
+                papers.append({
+                    "title": (title_el.text or "Unknown").strip().replace("\n", " ")
+                             if title_el is not None else "Unknown",
+                    "authors": authors,
+                    "authors_str": ", ".join(authors[:5])
+                                   + ("..." if len(authors) > 5 else ""),
+                    "summary": (summary_el.text or "").strip().replace("\n", " ")
+                               if summary_el is not None else "",
+                    "url": f"https://arxiv.org/abs/{arxiv_id}",
+                    "pdf_url": pdf_link,
+                    "arxiv_id": arxiv_id,
+                    "published": (published_el.text or "")[:10]
+                                 if published_el is not None else "",
+                    "updated": (updated_el.text or "")[:10]
+                               if updated_el is not None else "",
+                    "categories": categories,
+                    "doi": (doi_el.text or "").strip() if doi_el is not None else "",
+                    "comment": (comment_el.text or "").strip().replace("\n", " ")
+                               if comment_el is not None else "",
+                    "journal_ref": (journal_el.text or "").strip()
+                                   if journal_el is not None else "",
+                    "source": "arxiv",
+                })
+
+            return papers[:max_results]
+
+        except Exception as e:
+            logger.warning(f"arXiv fetch attempt {attempt + 1} failed: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY * (attempt + 1))
+
+    logger.error("arXiv fetch failed after all retries")
+    return []
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -135,58 +175,72 @@ _S2_FIELDS = "title,authors,year,abstract,citationCount,referenceCount,url,exter
 
 
 def _fetch_semantic_scholar(query: str, max_results: int = 5) -> list[dict]:
-    """Search Semantic Scholar for papers."""
-    try:
-        params = urllib.parse.urlencode({
-            "query": query,
-            "limit": min(max_results, 10),
-            "fields": _S2_FIELDS,
-        })
-        url = f"{_S2_SEARCH}?{params}"
-        req = urllib.request.Request(
-            url, headers={
-                "User-Agent": "OR-Intern/0.5",
-                "Accept": "application/json",
-            }
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-
-        papers = []
-        for item in data.get("data", [])[:max_results]:
-            ext_ids = item.get("externalIds") or {}
-            arxiv_id = ext_ids.get("ArXiv", "")
-            doi = ext_ids.get("DOI", "")
-
-            authors = [
-                a.get("name", "") for a in (item.get("authors") or [])
-            ]
-
-            papers.append({
-                "title": item.get("title", "Unknown"),
-                "authors": authors,
-                "authors_str": ", ".join(authors[:5])
-                               + ("..." if len(authors) > 5 else ""),
-                "summary": (item.get("abstract") or "")[:600],
-                "url": item.get("url", ""),
-                "arxiv_id": arxiv_id,
-                "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}" if arxiv_id else "",
-                "doi": doi,
-                "published": item.get("publicationDate", "") or "",
-                "year": item.get("year"),
-                "citation_count": item.get("citationCount", 0),
-                "reference_count": item.get("referenceCount", 0),
-                "venue": item.get("venue", ""),
-                "fields_of_study": item.get("fieldsOfStudy") or [],
-                "s2_paper_id": item.get("paperId", ""),
-                "source": "semantic_scholar",
+    """Search Semantic Scholar for papers with retry mechanism."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            params = urllib.parse.urlencode({
+                "query": query,
+                "limit": min(max_results, 10),
+                "fields": _S2_FIELDS,
             })
+            url = f"{_S2_SEARCH}?{params}"
+            req = urllib.request.Request(
+                url, headers={
+                    "User-Agent": "OR-Intern/0.5",
+                    "Accept": "application/json",
+                }
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="replace"))
 
-        return papers
+            papers = []
+            for item in data.get("data", [])[:max_results]:
+                ext_ids = item.get("externalIds") or {}
+                arxiv_id = ext_ids.get("ArXiv", "")
+                doi = ext_ids.get("DOI", "")
 
-    except Exception as e:
-        logger.warning("Semantic Scholar fetch failed: %s", e)
-        return []
+                authors = [
+                    a.get("name", "") for a in (item.get("authors") or [])
+                ]
+
+                papers.append({
+                    "title": item.get("title", "Unknown"),
+                    "authors": authors,
+                    "authors_str": ", ".join(authors[:5])
+                                   + ("..." if len(authors) > 5 else ""),
+                    "summary": (item.get("abstract") or "")[:600],
+                    "url": item.get("url", ""),
+                    "arxiv_id": arxiv_id,
+                    "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}" if arxiv_id else "",
+                    "doi": doi,
+                    "published": item.get("publicationDate", "") or "",
+                    "year": item.get("year"),
+                    "citation_count": item.get("citationCount", 0),
+                    "reference_count": item.get("referenceCount", 0),
+                    "venue": item.get("venue", ""),
+                    "fields_of_study": item.get("fieldsOfStudy") or [],
+                    "s2_paper_id": item.get("paperId", ""),
+                    "source": "semantic_scholar",
+                })
+
+            return papers
+
+        except urllib.error.HTTPError as e:
+            if e.code == 429:  # Rate limited
+                wait_time = RETRY_DELAY * (attempt + 1) * 2
+                logger.warning(f"Semantic Scholar rate limited, waiting {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                logger.warning(f"Semantic Scholar fetch attempt {attempt + 1} failed: {e}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_DELAY * (attempt + 1))
+        except Exception as e:
+            logger.warning(f"Semantic Scholar fetch attempt {attempt + 1} failed: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY * (attempt + 1))
+
+    logger.error("Semantic Scholar fetch failed after all retries")
+    return []
 
 
 def _fetch_s2_citations(paper_id: str, max_results: int = 10) -> list[dict]:
@@ -263,61 +317,66 @@ _OPENALEX_SEARCH = "https://api.openalex.org/works"
 
 
 def _fetch_openalex(query: str, max_results: int = 5) -> list[dict]:
-    """Search OpenAlex for papers with citation and venue data."""
-    try:
-        params = urllib.parse.urlencode({
-            "search": query,
-            "per_page": min(max_results, 10),
-            "mailto": "or-intern@example.org",
-        })
-        url = f"{_OPENALEX_SEARCH}?{params}"
-        req = urllib.request.Request(
-            url, headers={"User-Agent": "OR-Intern/0.5", "Accept": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+    """Search OpenAlex for papers with citation and venue data, with retry mechanism."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            params = urllib.parse.urlencode({
+                "search": query,
+                "per_page": min(max_results, 10),
+                "mailto": "or-intern@example.org",
+            })
+            url = f"{_OPENALEX_SEARCH}?{params}"
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "OR-Intern/0.5", "Accept": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="replace"))
 
-        papers = []
-        for item in data.get("results", [])[:max_results]:
-            authors = [
-                a.get("author", {}).get("display_name", "")
-                for a in (item.get("authorships") or [])
-            ]
+            papers = []
+            for item in data.get("results", [])[:max_results]:
+                authors = [
+                    a.get("author", {}).get("display_name", "")
+                    for a in (item.get("authorships") or [])
+                ]
 
-            doi = item.get("doi", "")
-            oa_url = item.get("primary_location", {}) or {}
-            landing = oa_url.get("landing_page_url", "")
+                doi = item.get("doi", "")
+                oa_url = item.get("primary_location", {}) or {}
+                landing = oa_url.get("landing_page_url", "")
 
-            oa_entry = {
-                "title": item.get("title", "Unknown"),
-                "authors": authors,
-                "authors_str": ", ".join(authors[:5])
-                               + ("..." if len(authors) > 5 else ""),
-                "summary": "",
-                "url": landing or doi or "",
-                "doi": doi.replace("https://doi.org/", "") if doi else "",
-                "published": item.get("publication_date", ""),
-                "year": item.get("publication_year"),
-                "citation_count": item.get("cited_by_count", 0),
-                "venue": (item.get("primary_location") or {}).get("source", {})
-                         .get("display_name", "") if item.get("primary_location") else "",
-                "type": item.get("type", ""),
-                "is_oa": item.get("open_access", {}).get("is_oa", False),
-                "oa_url": item.get("open_access", {}).get("oa_url", ""),
-                "source": "openalex",
-            }
+                oa_entry = {
+                    "title": item.get("title", "Unknown"),
+                    "authors": authors,
+                    "authors_str": ", ".join(authors[:5])
+                                   + ("..." if len(authors) > 5 else ""),
+                    "summary": "",
+                    "url": landing or doi or "",
+                    "doi": doi.replace("https://doi.org/", "") if doi else "",
+                    "published": item.get("publication_date", ""),
+                    "year": item.get("publication_year"),
+                    "citation_count": item.get("cited_by_count", 0),
+                    "venue": (item.get("primary_location") or {}).get("source", {})
+                             .get("display_name", "") if item.get("primary_location") else "",
+                    "type": item.get("type", ""),
+                    "is_oa": item.get("open_access", {}).get("is_oa", False),
+                    "oa_url": item.get("open_access", {}).get("oa_url", ""),
+                    "source": "openalex",
+                }
 
-            abstract_inv = item.get("abstract_inverted_index")
-            if abstract_inv:
-                oa_entry["summary"] = _reconstruct_abstract(abstract_inv)
+                abstract_inv = item.get("abstract_inverted_index")
+                if abstract_inv:
+                    oa_entry["summary"] = _reconstruct_abstract(abstract_inv)
 
-            papers.append(oa_entry)
+                papers.append(oa_entry)
 
-        return papers
+            return papers
 
-    except Exception as e:
-        logger.warning("OpenAlex fetch failed: %s", e)
-        return []
+        except Exception as e:
+            logger.warning(f"OpenAlex fetch attempt {attempt + 1} failed: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY * (attempt + 1))
+
+    logger.error("OpenAlex fetch failed after all retries")
+    return []
 
 
 def _reconstruct_abstract(inverted_index: dict) -> str:
@@ -514,8 +573,49 @@ async def or_papers_handler(args: dict[str, Any]) -> tuple[str, bool]:
         return await _handle_search(args)
 
 
+def _optimize_query(query: str) -> str:
+    """Optimize search query for better results.
+
+    - Remove common stop words that hurt search
+    - Extract key technical terms
+    - Add OR optimization context if missing
+    """
+    # Common stop words to remove
+    stop_words = {"the", "a", "an", "is", "are", "was", "were", "be", "been",
+                  "being", "have", "has", "had", "do", "does", "did", "will",
+                  "would", "could", "should", "may", "might", "can", "shall",
+                  "to", "of", "in", "for", "on", "with", "at", "by", "from",
+                  "as", "into", "through", "during", "before", "after", "above",
+                  "below", "between", "and", "but", "or", "not", "no", "nor",
+                  "so", "yet", "both", "either", "neither", "each", "every",
+                  "all", "any", "few", "more", "most", "other", "some", "such",
+                  "than", "too", "very", "just", "about", "how", "what", "when",
+                  "where", "who", "which", "why", "this", "that", "these", "those",
+                  "i", "me", "my", "we", "our", "you", "your", "he", "him", "his",
+                  "she", "her", "it", "its", "they", "them", "their", "want", "use",
+                  "using", "based", "method", "approach", "problem"}
+
+    # Extract meaningful words
+    words = query.lower().split()
+    meaningful_words = [w for w in words if w not in stop_words and len(w) > 2]
+
+    # If query is too short, add optimization context
+    if len(meaningful_words) < 3:
+        meaningful_words.extend(["optimization", "operations research"])
+
+    # For very long queries, keep only key terms (max 8 words)
+    if len(meaningful_words) > 8:
+        # Prioritize words that appear in OR_KEYWORDS
+        or_keywords_lower = [kw.lower() for kw in _OR_KEYWORDS]
+        priority_words = [w for w in meaningful_words if any(kw in w or w in kw for kw in or_keywords_lower)]
+        other_words = [w for w in meaningful_words if w not in priority_words]
+        meaningful_words = (priority_words + other_words)[:8]
+
+    return " ".join(meaningful_words)
+
+
 async def _handle_search(args: dict[str, Any]) -> tuple[str, bool]:
-    """Multi-source paper search."""
+    """Multi-source paper search with improved query handling."""
     query = args.get("query", "")
     max_results = min(args.get("max_results", 5), 20)
     source = args.get("source", "all")
@@ -523,19 +623,20 @@ async def _handle_search(args: dict[str, Any]) -> tuple[str, bool]:
     if not query:
         return "Error: No search query provided", True
 
-    if len(query.split()) < 2:
-        query += " optimization"
+    # Optimize query for better results
+    optimized_query = _optimize_query(query)
+    logger.info(f"Optimized query: '{query}' -> '{optimized_query}'")
 
     all_papers: list[dict] = []
 
     if source in ("arxiv", "all"):
-        all_papers.extend(_fetch_arxiv(query, max_results))
+        all_papers.extend(_fetch_arxiv(optimized_query, max_results))
 
     if source in ("semantic_scholar", "all"):
-        all_papers.extend(_fetch_semantic_scholar(query, max_results))
+        all_papers.extend(_fetch_semantic_scholar(optimized_query, max_results))
 
     if source in ("openalex", "all"):
-        all_papers.extend(_fetch_openalex(query, max_results))
+        all_papers.extend(_fetch_openalex(optimized_query, max_results))
 
     if source == "all":
         papers = _deduplicate(all_papers)[:max_results]
@@ -545,6 +646,17 @@ async def _handle_search(args: dict[str, Any]) -> tuple[str, bool]:
         )
     else:
         papers = all_papers[:max_results]
+
+    if not papers:
+        # Try with original query if optimized query failed
+        if optimized_query != query:
+            logger.info("No results with optimized query, trying original...")
+            all_papers = []
+            if source in ("arxiv", "all"):
+                all_papers.extend(_fetch_arxiv(query, max_results, filter_or=False))
+            if source in ("semantic_scholar", "all"):
+                all_papers.extend(_fetch_semantic_scholar(query, max_results))
+            papers = _deduplicate(all_papers)[:max_results]
 
     if not papers:
         return (

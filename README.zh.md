@@ -238,30 +238,74 @@ uv run pytest tests/benchmarks/ -v -k "FullPipeline"
 
 ## 💡 使用示例
 
-### 线性规划
+### 示例 1：简单线性规划
 
-```
-用户：求解：maximize 3x+2y s.t. x+y<=10, x>=0, y>=0
-
-OR-Intern：
-📊 模型已生成：
-   最大化：3x + 2y
-   约束条件：x + y <= 10, x >= 0, y >= 0
-
-✅ 找到最优解：
-   x = 10, y = 0
-   最优值 = 30
+```bash
+uv run or-intern "求解：maximize 3x+2y s.t. x+y<=10, x>=0, y>=0"
 ```
 
-### 生产计划
-
+**输出：**
 ```
-用户：我们有3种产品（A、B、C），利润和资源需求不同。
-      在给定约束条件下最大化利润。
+## Phase 1: Model
+✅ 模型已生成：maximize 3x + 2y, 约束：x + y <= 10
 
-OR-Intern：
-[一次对话完成：生成模型 → 求解 → 验证 → 敏感性分析 → 可视化 → PDF报告]
+## Phase 2: Solve
+✅ 最优解：x = 10, y = 0, 最优值 = 30
+
+## Phase 3-6
+[自动完成验证、灵敏度分析、可视化、报告]
 ```
+
+### 示例 2：半导体物料缺料预测（真实业务场景）
+
+```bash
+# 准备数据文件（CSV格式）
+# test_data/materials.csv - 物料主数据
+# test_data/production_plan.csv - 生产计划
+# test_data/bom.csv - 物料清单
+
+uv run or-intern "请帮我分析半导体物料的缺料风险。数据文件在 test_data/ 目录下"
+```
+
+**系统自动完成：**
+1. **数据加载** - 读取 CSV 文件（物料、BOM、生产计划）
+2. **模型构建** - 生成 MRP 优化模型（Pyomo）
+3. **求解计算** - 使用 HiGHS 求解，识别缺料风险
+4. **结果验证** - 验证约束满足，目标可行
+5. **可视化** - 生成库存趋势图、风险热力图、补货建议图
+6. **报告生成** - 输出完整的分析报告
+
+**输出文件：**
+```
+outputs/2026-06-04_xxxxxxxx/
+├── report.md                    # 完整分析报告
+├── material_shortage_model.py   # MRP 优化模型
+├── shortage_analysis_result.json # 分析结果数据
+├── inventory_trend.png          # 库存趋势图
+├── shortage_heatmap.png         # 缺料风险热力图
+├── reorder_suggestions.png      # 补货建议图
+└── supplier_pie.png             # 供应商成本占比
+```
+
+**分析结果摘要：**
+| 优先级 | 物料 | 补货量 | 最晚下单 | 成本 |
+|:------:|:-----|:------:|:--------:|:----:|
+| 紧急 | 硅晶圆 | 6,660 | 第1周 | ¥169,830 |
+| 紧急 | 金属靶材 | 618 | 第1周 | ¥27,810 |
+| 重要 | 刻蚀气体 | 2,756 | 第2周 | ¥23,426 |
+
+### 示例 3：使用论文搜索（复杂问题）
+
+```bash
+uv run or-intern "我想用分布鲁棒优化方法处理供应链中的需求不确定性。
+请先搜索相关论文，了解最新方法，然后构建模型并求解。"
+```
+
+**系统会：**
+1. 使用 `or_papers` 搜索 arXiv 上的相关论文
+2. 使用 `research` 子代理进行深入研究
+3. 使用 `stochastic_builder` 构建随机规划模型
+4. 完成完整的 6 阶段工作流
 
 ---
 
