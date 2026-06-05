@@ -110,7 +110,17 @@ async def _bash_handler(
     if not command:
         return "No command provided.", False
     command = wrap_shell_command_with_hub_artifact_bootstrap(command, session)
+
+    # Default to workspace directory if session is available
     work_dir = args.get("work_dir", ".")
+    if work_dir == "." and session is not None:
+        try:
+            from agent.tools._output_dir import get_workspace_dir
+            workspace = get_workspace_dir(session)
+            work_dir = str(workspace)
+        except Exception:
+            pass
+
     timeout = min(args.get("timeout") or DEFAULT_TIMEOUT, MAX_TIMEOUT)
     try:
         result = subprocess.run(
@@ -125,7 +135,7 @@ async def _bash_handler(
         output = _truncate_output(output)
         if not output.strip():
             output = "(no output)"
-        return output, result.returncode == 0
+        return output, result.returncode != 0
     except subprocess.TimeoutExpired:
         return (
             f"Command timed out after {timeout}s and was killed.\n\n"
@@ -134,9 +144,9 @@ async def _bash_handler(
             f"Then check status with:\n"
             f"  kill -0 <PID> 2>/dev/null && echo 'running' || echo 'done'\n"
             f"  tail -n 50 /tmp/output.log"
-        ), False
+        ), True
     except Exception as e:
-        return f"bash error: {e}", False
+        return f"bash error: {e}", True
 
 
 async def _read_handler(args: dict[str, Any], **_kw) -> tuple[str, bool]:
@@ -166,7 +176,7 @@ async def _read_handler(args: dict[str, Any], **_kw) -> tuple[str, bool]:
             line = line[:MAX_LINE_LENGTH] + "..."
         numbered.append(f"{i:>6}\t{line}")
 
-    return "\n".join(numbered), True
+    return "\n".join(numbered), False
 
 
 async def _write_handler(args: dict[str, Any], **_kw) -> tuple[str, bool]:
@@ -193,9 +203,9 @@ async def _write_handler(args: dict[str, Any], **_kw) -> tuple[str, bool]:
                 msg += "\n\nValidation warnings:\n" + "\n".join(
                     f"  ⚠ {w}" for w in warnings
                 )
-        return msg, True
+        return msg, False
     except Exception as e:
-        return f"write error: {e}", False
+        return f"write error: {e}", True
 
 
 async def _edit_handler(args: dict[str, Any], **_kw) -> tuple[str, bool]:
@@ -236,7 +246,7 @@ async def _edit_handler(args: dict[str, Any], **_kw) -> tuple[str, bool]:
     try:
         _atomic_write(p, new_text)
     except Exception as e:
-        return f"edit write error: {e}", False
+        return f"edit write error: {e}", True
 
     msg = f"Edited {file_path} ({replacements} replacement{'s' if replacements > 1 else ''})"
     if fuzzy_note:
@@ -248,7 +258,7 @@ async def _edit_handler(args: dict[str, Any], **_kw) -> tuple[str, bool]:
             msg += "\n\nValidation warnings:\n" + "\n".join(
                 f"  ⚠ {w}" for w in warnings
             )
-    return msg, True
+    return msg, False
 
 
 # ── Local tool specs (override sandbox /app references) ────────────────

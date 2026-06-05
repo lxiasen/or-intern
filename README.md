@@ -238,31 +238,75 @@ uv run pytest tests/benchmarks/ -v -k "FullPipeline"
 
 ## 💡 Usage Examples
 
-### Linear Programming
+### Example 1: Simple Linear Programming
 
-```
-User: Solve: maximize 3x+2y s.t. x+y<=10, x>=0, y>=0
-
-OR-Intern: 
-📊 Model Generated:
-   Maximize: 3x + 2y
-   Subject to: x + y <= 10, x >= 0, y >= 0
-
-✅ Solution Found:
-   x = 10, y = 0
-   Optimal value = 30
+```bash
+uv run or-intern "Solve: maximize 3x+2y s.t. x+y<=10, x>=0, y>=0"
 ```
 
-### Production Planning
-
+**Output:**
 ```
-User: We have 3 products (A, B, C) with different profit margins 
-      and resource requirements. Maximize profit given constraints.
+## Phase 1: Model
+✅ Model generated: maximize 3x + 2y, subject to: x + y <= 10
 
-OR-Intern:
-[Generates model, solves, validates, creates sensitivity analysis,
- visualizations, and PDF report - all in one conversation]
+## Phase 2: Solve
+✅ Optimal solution: x = 10, y = 0, objective = 30
+
+## Phase 3-6
+[Automatically completes validation, sensitivity analysis, visualization, report]
 ```
+
+### Example 2: Semiconductor Material Shortage Prediction (Real Business Scenario)
+
+```bash
+# Prepare data files (CSV format)
+# test_data/materials.csv - Material master data
+# test_data/production_plan.csv - Production plan
+# test_data/bom.csv - Bill of Materials
+
+uv run or-intern "Analyze material shortage risk for semiconductor manufacturing. Data files are in test_data/ directory"
+```
+
+**System automatically completes:**
+1. **Data Loading** - Read CSV files (materials, BOM, production plan)
+2. **Model Building** - Generate MRP optimization model (Pyomo)
+3. **Solving** - Use HiGHS solver to identify shortage risks
+4. **Validation** - Verify constraint satisfaction
+5. **Visualization** - Generate inventory trend charts, risk heatmaps, reorder suggestions
+6. **Report Generation** - Output complete analysis report
+
+**Output Files:**
+```
+outputs/2026-06-04_xxxxxxxx/
+├── report.md                    # Complete analysis report
+├── material_shortage_model.py   # MRP optimization model
+├── shortage_analysis_result.json # Analysis result data
+├── inventory_trend.png          # Inventory trend chart
+├── shortage_heatmap.png         # Shortage risk heatmap
+├── reorder_suggestions.png      # Reorder suggestions chart
+└── supplier_pie.png             # Supplier cost distribution
+```
+
+**Analysis Summary:**
+| Priority | Material | Reorder Qty | Latest Order | Cost |
+|:--------:|:---------|:-----------:|:------------:|:----:|
+| Urgent | Silicon Wafer | 6,660 | Week 1 | $169,830 |
+| Urgent | Metal Target | 618 | Week 1 | $27,810 |
+| Important | Etching Gas | 2,756 | Week 2 | $23,426 |
+
+### Example 3: Using Paper Search (Complex Problems)
+
+```bash
+uv run or-intern "I want to use distributionally robust optimization to handle 
+demand uncertainty in supply chain. First search for relevant papers, then 
+build and solve the model."
+```
+
+**System will:**
+1. Use `or_papers` to search arXiv for relevant papers
+2. Use `research` sub-agent for in-depth study
+3. Use `stochastic_builder` to build stochastic programming model
+4. Complete the full 6-phase workflow
 
 ---
 

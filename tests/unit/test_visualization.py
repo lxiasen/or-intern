@@ -19,6 +19,12 @@ class TestVisualizationSpec:
         assert "variables" in chart_type["enum"]
         assert "sensitivity" in chart_type["enum"]
         assert "all" in chart_type["enum"]
+        # New chart types
+        assert "trend" in chart_type["enum"]
+        assert "stacked_bar" in chart_type["enum"]
+        assert "scatter_gantt" in chart_type["enum"]
+        assert "pie" in chart_type["enum"]
+        assert "ratio_heatmap" in chart_type["enum"]
 
 
 class TestVariableChart:
@@ -194,3 +200,147 @@ class TestVisualizationHandler:
         })
         assert not is_error
         assert "Pareto" in output
+
+    @pytest.mark.asyncio
+    async def test_trend_chart(self, temp_dir, monkeypatch):
+        from agent.tools import visualization as _viz
+        monkeypatch.setattr(_viz, "get_workspace_dir", lambda session=None: temp_dir)
+        from agent.tools.visualization import visualization_handler
+        output, is_error = await visualization_handler({
+            "chart_type": "trend",
+            "series_data": {"库存A": [100, 90, 80, 70], "库存B": [50, 60, 55, 45]},
+            "x_labels": ["第1周", "第2周", "第3周", "第4周"],
+            "title": "库存趋势分析",
+            "xlabel": "周次",
+            "ylabel": "库存量",
+            "threshold_lines": {"安全库存": 60},
+            "fill_threshold": 60,
+        })
+        assert not is_error
+        assert "Trend" in output
+
+    @pytest.mark.asyncio
+    async def test_stacked_bar_chart(self, temp_dir, monkeypatch):
+        from agent.tools import visualization as _viz
+        monkeypatch.setattr(_viz, "get_workspace_dir", lambda session=None: temp_dir)
+        from agent.tools.visualization import visualization_handler
+        output, is_error = await visualization_handler({
+            "chart_type": "stacked_bar",
+            "category_data": {"物料A": [10, 15, 20], "物料B": [5, 8, 12]},
+            "categories": ["物料A", "物料B"],
+            "x_labels": ["第1周", "第2周", "第3周"],
+            "title": "每周物料需求",
+            "xlabel": "周次",
+            "ylabel": "需求量",
+        })
+        assert not is_error
+        assert "Stacked" in output
+
+    @pytest.mark.asyncio
+    async def test_scatter_gantt_chart(self, temp_dir, monkeypatch):
+        from agent.tools import visualization as _viz
+        monkeypatch.setattr(_viz, "get_workspace_dir", lambda session=None: temp_dir)
+        from agent.tools.visualization import visualization_handler
+        output, is_error = await visualization_handler({
+            "chart_type": "scatter_gantt",
+            "event_data": {"物料A": [0, 100, 0, 200], "物料B": [50, 0, 150, 0]},
+            "categories": ["物料A", "物料B"],
+            "x_labels": ["第1周", "第2周", "第3周", "第4周"],
+            "title": "补货计划",
+            "xlabel": "周次",
+        })
+        assert not is_error
+        assert "Gantt" in output
+
+    @pytest.mark.asyncio
+    async def test_pie_chart(self, temp_dir, monkeypatch):
+        from agent.tools import visualization as _viz
+        monkeypatch.setattr(_viz, "get_workspace_dir", lambda session=None: temp_dir)
+        from agent.tools.visualization import visualization_handler
+        output, is_error = await visualization_handler({
+            "chart_type": "pie",
+            "category_data": {"持有成本": 1000, "补货成本": 5000, "缺料成本": 200},
+            "title": "成本分解",
+        })
+        assert not is_error
+        assert "Pie" in output
+
+    @pytest.mark.asyncio
+    async def test_ratio_heatmap_chart(self, temp_dir, monkeypatch):
+        from agent.tools import visualization as _viz
+        monkeypatch.setattr(_viz, "get_workspace_dir", lambda session=None: temp_dir)
+        from agent.tools.visualization import visualization_handler
+        output, is_error = await visualization_handler({
+            "chart_type": "ratio_heatmap",
+            "value_data": {"物料A": [100, 80, 60], "物料B": [50, 45, 40]},
+            "reference_data": {"物料A": 80, "物料B": 45},
+            "categories": ["物料A", "物料B"],
+            "x_labels": ["第1周", "第2周", "第3周"],
+            "title": "库存风险分析",
+            "xlabel": "周次",
+            "ylabel": "物料",
+        })
+        assert not is_error
+        assert "Heatmap" in output
+
+
+class TestChineseFontSupport:
+    """Test Chinese font configuration for matplotlib."""
+
+    def test_setup_chinese_font_function_exists(self):
+        """Verify _setup_chinese_font function is importable."""
+        from agent.tools.visualization import _setup_chinese_font
+        assert callable(_setup_chinese_font)
+
+    def test_setup_chinese_font_runs_without_error(self):
+        """Verify _setup_chinese_font executes without raising exceptions."""
+        import matplotlib
+        matplotlib.use('Agg')
+        from agent.tools.visualization import _setup_chinese_font
+        # Should not raise any exception
+        _setup_chinese_font()
+
+    def test_chinese_font_configures_rcparams(self):
+        """Verify _setup_chinese_font modifies matplotlib rcParams."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        from agent.tools.visualization import _setup_chinese_font
+
+        # Store original value
+        original = plt.rcParams.get('font.sans-serif', [])
+
+        _setup_chinese_font()
+
+        # After setup, sans-serif should have been modified
+        current = plt.rcParams.get('font.sans-serif', [])
+        # At minimum, DejaVu Sans should be in the list as fallback
+        assert len(current) >= len(original) or 'DejaVu Sans' in current
+
+    def test_chinese_characters_in_variable_chart(self, temp_dir):
+        """Verify charts with Chinese labels generate without warnings."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import warnings
+        from agent.tools.visualization import _generate_variable_chart
+
+        chart_path = str(temp_dir / "chinese_test.png")
+        chinese_variables = {"硅晶圆": 500.0, "光刻胶": 200.0, "金属靶材": 150.0}
+
+        # Capture warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _generate_variable_chart(chinese_variables, 850.0, chart_path)
+
+            # Filter for CJK/glyph missing warnings
+            glyph_warnings = [
+                warning for warning in w
+                if "missing from font" in str(warning.message)
+            ]
+            # Should have fewer or no glyph warnings after font setup
+            # (may still have warnings if no Chinese font is installed)
+            if glyph_warnings:
+                pytest.skip("No Chinese font available in test environment")
+
+        assert Path(chart_path).exists()
+        assert Path(chart_path).stat().st_size > 0

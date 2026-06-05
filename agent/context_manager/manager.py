@@ -292,24 +292,28 @@ class ContextManager:
         # Get HF user info from OAuth token
         hf_user_info = _get_hf_username(hf_token)
 
+        # Use workspace_dir if available, otherwise fall back to cwd
+        workspace_dir = getattr(self, "workspace_dir", None)
+        if workspace_dir is None:
+            workspace_dir = _os.getcwd() if local_mode else "/app"
+
         template = Template(template_str)
         static_prompt = template.render(
             tools=tool_specs,
             current_date=current_date,
             current_time=current_time,
-            workspace_dir=_os.getcwd() if local_mode else "/app",
+            workspace_dir=str(workspace_dir),
             local_mode=local_mode,
         )
 
         # CLI-specific context for local mode
         if local_mode:
-            cwd = _os.getcwd()
             local_context = (
                 f"\n\n# CLI / Local mode\n\n"
                 f"You are running as a local CLI tool on the user's machine. "
                 f"There is NO sandbox — bash, read, write, and edit operate directly "
                 f"on the local filesystem.\n\n"
-                f"Working directory: {cwd}\n"
+                f"Working directory: {workspace_dir}\n"
                 f"Use absolute paths or paths relative to the working directory."
             )
             static_prompt += local_context

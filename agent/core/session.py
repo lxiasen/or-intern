@@ -129,6 +129,13 @@ class Session:
         self.workspace_dir = get_workspace_dir(self)
         self.context_manager.workspace_dir = self.workspace_dir
 
+        # Refresh system prompt with correct workspace directory
+        self.context_manager.refresh_system_prompt(
+            tool_specs=tool_specs,
+            hf_token=hf_token,
+            local_mode=local_mode,
+        )
+
         self.sandbox = None
         self.sandbox_hardware: Optional[str] = None
         self.sandbox_preload_task: Optional[asyncio.Task] = None

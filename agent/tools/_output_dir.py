@@ -32,8 +32,8 @@ def get_workspace_dir(session: Any = None) -> Path:
     """Get the workspace directory for the current session.
 
     Each session has a single persistent workspace directory where
-    all tool outputs are written. The directory name uses the first
-    8 characters of the session ID for readability.
+    all tool outputs are written. The directory name uses the format:
+    <YYYY-MM-DD>_<session_id_prefix> for easy identification.
 
     Parameters
     ----------
@@ -49,8 +49,9 @@ def get_workspace_dir(session: Any = None) -> Path:
     if session is not None:
         session_id = getattr(session, "session_id", None)
         if session_id:
+            date_prefix = datetime.now().strftime("%Y-%m-%d")
             prefix = session_id[:8]
-            ws_dir = _OUTPUTS_ROOT / prefix
+            ws_dir = _OUTPUTS_ROOT / f"{date_prefix}_{prefix}"
             ws_dir.mkdir(parents=True, exist_ok=True)
             return ws_dir
 

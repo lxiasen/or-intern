@@ -15,7 +15,7 @@ from agent.tools._output_dir import get_workspace_dir, suggest_filename, record_
 logger = logging.getLogger(__name__)
 
 _REPORT_TEMPLATE = """\
-# OR-Intern Optimization Report
+# {title}
 
 **Generated**: {timestamp}
 **Solver**: {solver}
@@ -46,6 +46,8 @@ _REPORT_TEMPLATE = """\
 {sensitivity_section}
 
 {visualization_section}
+
+{custom_sections}
 
 ---
 
@@ -169,11 +171,16 @@ REPORT_GENERATOR_TOOL_SPEC = {
         "Generate a formatted report from optimization results. "
         "Supports Markdown and LaTeX formats. "
         "Includes problem description, model details, solution summary, "
-        "sensitivity analysis, and visualizations."
+        "sensitivity analysis, visualizations, and custom sections."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            "title": {
+                "type": "string",
+                "description": "Report title",
+                "default": "OR-Intern Optimization Report",
+            },
             "problem_description": {
                 "type": "string",
                 "description": "Original problem description",
@@ -209,11 +216,26 @@ REPORT_GENERATOR_TOOL_SPEC = {
                 "type": "array",
                 "description": "List of chart file paths to include",
             },
+            "custom_sections": {
+                "type": "array",
+                "description": 'Custom sections to add: [{"title": "Section Name", "content": "Markdown content"}]',
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "content": {"type": "string"},
+                    },
+                },
+            },
             "format": {
                 "type": "string",
                 "enum": ["markdown", "latex"],
                 "description": "Output format: markdown or latex",
                 "default": "markdown",
+            },
+            "filename": {
+                "type": "string",
+                "description": "Output filename",
             },
         },
     },
@@ -223,6 +245,7 @@ REPORT_GENERATOR_TOOL_SPEC = {
 async def report_generator_handler(args: dict[str, Any], session=None) -> tuple[str, bool]:
     """Handler for report_generator tool."""
     try:
+        title = args.get("title", "OR-Intern Optimization Report")
         problem_desc = args.get("problem_description", "Optimization problem")
         problem_type = args.get("problem_type", "LP")
         objective = args.get("objective", "N/A")
@@ -231,11 +254,23 @@ async def report_generator_handler(args: dict[str, Any], session=None) -> tuple[
         solver = args.get("solver", "HiGHS")
         status = args.get("status", "OPTIMAL")
         chart_paths = args.get("chart_paths", [])
+        custom_sections = args.get("custom_sections", [])
         output_format = args.get("format", "markdown")
         filename = args.get("filename", "")
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         workspace = get_workspace_dir(session)
+
+        # Build custom sections content
+        custom_sections_content = ""
+        if custom_sections:
+            for section in custom_sections:
+                section_title = section.get("title", "")
+                section_content = section.get("content", "")
+                if section_title:
+                    custom_sections_content += f"\n## {section_title}\n\n"
+                if section_content:
+                    custom_sections_content += section_content + "\n\n"
 
         if output_format == "latex":
             var_table_latex = _format_var_table_latex(variables)
@@ -289,6 +324,7 @@ async def report_generator_handler(args: dict[str, Any], session=None) -> tuple[
                     visualization_section += f"![Chart]({path})\n\n"
 
             report = _REPORT_TEMPLATE.format(
+                title=title,
                 timestamp=timestamp,
                 solver=solver,
                 status=status,
@@ -301,6 +337,7 @@ async def report_generator_handler(args: dict[str, Any], session=None) -> tuple[
                 constraint_table=constraint_table,
                 sensitivity_section=sensitivity_section,
                 visualization_section=visualization_section,
+                custom_sections=custom_sections_content,
             )
 
             if filename:
